@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 backend testing for Rintaki mobile app pivot — all NEW endpoints validated. 58/58 pytest tests passed against https://community-connect-257.preview.emergentagent.com. Covered: GET /api/links (library + 7 social URLs), magazines CRUD with admin guard + delete, media feed posts (create awards +3 pts, toggle-like idempotent, comments with notification to author), TCG (list/create collections admin-only, list cards with owned_ids, toggle-card persists + verified via /tcg/my-collection, claim creation records owned_count vs total_count, admin approval awards exactly +50 pts AND +100 anime_cash, member cannot approve - 403, tradeins list, trade creates notification to partner, unknown partner 404), trips (member 403 on create, admin create + visible in list), giveaways (entered/entry_count enrichment, idempotent enter, admin create), contests (admin only create, member list), articles (blog approval awards 25 pts, magazine approval awards 50 pts, member cannot approve - 403, user only sees own), extended profile GET/PUT persistence, event PATCH by admin toggles ticket_enabled/ticket_price, Stripe checkout returns valid https url + session_id and inserts payment_transactions with payment_status=initiated, checkout rejects event without ticket_enabled (400), unknown event 404, unauthenticated 401, /payments/status/{fake_id} returns 404 for unknown session, /tickets list requires auth and is empty until paid (idempotent). Auth-guard sweep: 12 protected GETs return 401 without cookie; 6 admin-only POSTs return 403 for members. New users verified to start with anime_cash=0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_pivot.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_iter2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1337 lines (>700 threshold) — strongly recommend splitting into routers: auth.py, forums.py, feed.py, tcg.py, payments.py, members.py, admin.py. Maintainability will degrade quickly.",
+    "Stripe: STRIPE_API_KEY=sk_test_emergent is a stub — Emergent test key works for checkout session creation but `get_checkout_status` against a fake/invalid session_id may surface as 500 upstream. Current code only handles our own-DB 404 (correct); consider wrapping stripe_checkout.get_checkout_status in try/except to return 502 rather than generic 500 if Stripe rejects.",
+    "/api/events POST/newsletters POST still loops notifications per user synchronously — same comment as iter1; with trips/giveaways/contests also broadcasting, the pattern will scale poorly.",
+    "TCG toggle-card uses tcg_user_cards without a unique compound index on (user_id, card_id); double-clicks in rapid succession could insert duplicates. Recommend db.tcg_user_cards.create_index([('user_id',1),('card_id',1)], unique=True) in startup().",
+    "TCG claim approval is NOT idempotent — calling approve twice awards +50 pts and +100 anime_cash each time. Guard by checking claim['status'] != 'approved' before awarding.",
+    "Giveaway /enter uses $addToSet (correct) but response always returns {'entered': True}; that's fine, but the ends_at date is not validated against expiry (expired giveaway still accepts entries).",
+    "ArticleSubmissionCreate.kind accepts any string; only 'blog' and 'magazine' are handled. Approving a typo'd kind silently awards 50 pts (the else branch). Add Literal['blog','magazine'] enum validation.",
+    "EventTicketEventUpdate.ticket_enabled defaults to False so a bare PATCH with only ticket_price silently turns tickets OFF. Make both fields Optional and use exclude_none.",
+    "No endpoint to fetch event ticket pricing separately from the event document — acceptable since /api/events returns full docs, but ensure frontend displays ticket_price when ticket_enabled is true.",
+    "payment_transactions has no unique index on session_id; /payments/status updates are idempotent via the paid flag check, but duplicate-insert race in /payments/tickets/checkout is possible if Stripe returns same session_id (unlikely).",
+    "/api/webhook/stripe mirrors ticket creation logic — good. But it is not deduplicating against tickets collection; if both webhook and /payments/status fire nearly simultaneously a user could briefly get 2x tickets. Consider unique index on (session_id, user_id, index).",
+    "Env-sourced LIBRARY_URL + SOCIAL_* quoted in .env — os.environ.get reads include quotes verbatim on some setups; verified current values include quotes literally in the .env file but load_dotenv strips them correctly in tested environment. Flagging for awareness."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_mobile_pivot.py"
+  ],
+  "success_rate": {
+    "backend": "100% (58/58)",
+    "frontend": "not tested (skipped per request)"
+  },
+  "test_credentials": "Admin admin@rintaki.org / Admin@Rintaki2026 — verified. Test members created fresh each run with TEST_mobile_* prefix.",
+  "seed_data_creation": "Created per-run: TEST_ magazine (deleted within same test), TEST_col collection + TEST_card, TEST_trip, TEST_gv giveaway, TEST_ct contest, TEST_article + TEST_mag_art, TEST_no_ticket event, one open (unpaid) payment_transaction with Stripe session. None of these affect production flows; main agent may run a TEST_ prefix cleanup if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iteration 2 endpoints (mobile pivot) pass. Combined with iteration 1 (43/43 original endpoints), total coverage is 101 tests across /app/backend/tests/backend_test.py and /app/backend/tests/test_mobile_pivot.py. For Stripe flow: only checkout-session creation was verified — real payment completion cannot be tested without Stripe test card simulation. The /payments/status path IS exercised (Stripe returns open/unpaid for the real session created during test) — it handled the response without errors. If you need to test the 'paid' idempotent ticket creation path, mock stripe_checkout.get_checkout_status or use Stripe CLI to trigger webhook.",
+  "rca of the issue": "N/A — no failures. Noted design-level recommendations for main agent in critical_code_review_comments (idempotent claim approval + unique index on tcg_user_cards are the highest-value follow-ups)."
+}

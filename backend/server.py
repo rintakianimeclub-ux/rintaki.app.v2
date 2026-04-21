@@ -75,6 +75,7 @@ def public_user(u: dict) -> dict:
         "picture": u.get("picture"),
         "role": u.get("role", "member"),
         "points": u.get("points", 0),
+        "anime_cash": u.get("anime_cash", 0),
         "badges": u.get("badges", []),
         "bio": u.get("bio", ""),
         "created_at": u.get("created_at"),
@@ -129,6 +130,18 @@ async def add_points(user_id: str, amount: int, reason: str):
         "user_id": user_id,
         "amount": amount,
         "reason": reason,
+        "kind": "points",
+        "created_at": iso(now_utc()),
+    })
+
+async def add_anime_cash(user_id: str, amount: int, reason: str):
+    await db.users.update_one({"user_id": user_id}, {"$inc": {"anime_cash": amount}})
+    await db.points_transactions.insert_one({
+        "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "amount": amount,
+        "reason": reason,
+        "kind": "anime_cash",
         "created_at": iso(now_utc()),
     })
 
@@ -275,6 +288,58 @@ async def startup():
                 "pinned": True,
                 "created_at": iso(now_utc()),
             })
+
+    # Seed a starter TCG collection + cards
+    if await db.tcg_collections.count_documents({}) == 0:
+        col_id = f"col_{uuid.uuid4().hex[:10]}"
+        await db.tcg_collections.insert_one({
+            "collection_id": col_id,
+            "name": "Fashionista 2026",
+            "description": "Rintaki's 2026 Fashionista trading card theme set.",
+            "cover_image": "https://rintaki.org/wp-content/uploads/2026/04/ChatGPT-Image-Apr-3-2026-04_17_30-PM-150x150.png",
+            "created_at": iso(now_utc()),
+        })
+        sample_cards = [
+            ("001", "Rin", "Legendary", "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=400"),
+            ("002", "Aiko", "Rare", "https://images.unsplash.com/photo-1578632749014-ca77efd052eb?w=400"),
+            ("003", "Kenji", "Rare", "https://images.unsplash.com/photo-1606036525011-6f86a18d70f9?w=400"),
+            ("004", "Yuki", "Common", "https://images.unsplash.com/photo-1611605698335-8b1569810432?w=400"),
+            ("005", "Hana", "Common", "https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=400"),
+            ("006", "Daichi", "Common", "https://images.unsplash.com/photo-1541562232579-512a21360020?w=400"),
+        ]
+        for num, name, rarity, img in sample_cards:
+            await db.tcg_cards.insert_one({
+                "card_id": f"card_{uuid.uuid4().hex[:10]}",
+                "collection_id": col_id,
+                "name": name,
+                "number": num,
+                "rarity": rarity,
+                "image_url": img,
+                "created_at": iso(now_utc()),
+            })
+
+    if await db.magazines.count_documents({}) == 0:
+        await db.magazines.insert_one({
+            "magazine_id": f"mg_{uuid.uuid4().hex[:10]}",
+            "title": "Otaku World",
+            "issue": "Vol. 5, Issue 1 (2026)",
+            "description": "Our flagship magazine featuring interviews, reviews, and community highlights.",
+            "pdf_url": "https://rintaki.org/wp-content/uploads/2025/07/APRIL-2026.pdf",
+            "cover_image": "https://rintaki.org/wp-content/uploads/2025/07/APRIL-2026-pdf-233x300.jpg",
+            "created_at": iso(now_utc()),
+        })
+
+    if await db.giveaways.count_documents({}) == 0:
+        await db.giveaways.insert_one({
+            "giveaway_id": f"gv_{uuid.uuid4().hex[:10]}",
+            "title": "Monthly Anime Figure Giveaway",
+            "description": "Enter for a chance to win a limited edition anime figure. Members only!",
+            "prize_type": "anime_item",
+            "ends_at": iso(now_utc() + timedelta(days=30)),
+            "cover_image": "https://images.pexels.com/photos/31369734/pexels-photo-31369734.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+            "entries": [],
+            "created_at": iso(now_utc()),
+        })
 
 # ----------------- Auth Endpoints -----------------
 @api.get("/")
@@ -695,6 +760,563 @@ async def admin_stats(user: dict = Depends(require_admin)):
 async def list_members(user: dict = Depends(get_current_user)):
     items = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(200).to_list(200)
     return {"members": [public_user(u) for u in items if u["user_id"] != user["user_id"]]}
+
+# ----------------- Magazines (PDF issues) -----------------
+class MagazineCreate(BaseModel):
+    title: str
+    issue: str = ""  # e.g., "Vol 5, Issue 1"
+    pdf_url: str
+    cover_image: Optional[str] = None
+    description: str = ""
+
+@api.get("/magazines")
+async def list_magazines():
+    items = await db.magazines.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"magazines": items}
+
+@api.post("/magazines")
+async def create_magazine(data: MagazineCreate, user: dict = Depends(require_admin)):
+    m = {"magazine_id": f"mg_{uuid.uuid4().hex[:10]}", **data.model_dump(), "created_at": iso(now_utc())}
+    await db.magazines.insert_one(m)
+    m.pop("_id", None)
+    return m
+
+@api.delete("/magazines/{magazine_id}")
+async def delete_magazine(magazine_id: str, user: dict = Depends(require_admin)):
+    await db.magazines.delete_one({"magazine_id": magazine_id})
+    return {"ok": True}
+
+# ----------------- Social / Links -----------------
+@api.get("/links")
+async def get_links():
+    return {
+        "library": os.environ.get("LIBRARY_URL", ""),
+        "social": {
+            "tiktok": os.environ.get("SOCIAL_TIKTOK", ""),
+            "instagram": os.environ.get("SOCIAL_INSTAGRAM", ""),
+            "twitter": os.environ.get("SOCIAL_TWITTER", ""),
+            "facebook": os.environ.get("SOCIAL_FACEBOOK", ""),
+            "youtube": os.environ.get("SOCIAL_YOUTUBE", ""),
+            "discord_public": os.environ.get("SOCIAL_DISCORD_PUBLIC", ""),
+            "discord_members": os.environ.get("SOCIAL_DISCORD_MEMBERS", ""),
+        },
+    }
+
+# ----------------- Media Feed (Instagram-style) -----------------
+class MediaPostCreate(BaseModel):
+    media_type: str  # "image" or "video"
+    media_url: str
+    caption: str = ""
+
+class CommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=500)
+
+@api.get("/feed/posts")
+async def list_posts(user: dict = Depends(get_current_user)):
+    posts = await db.media_posts.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    return {"posts": posts}
+
+@api.post("/feed/posts")
+async def create_post(data: MediaPostCreate, user: dict = Depends(get_current_user)):
+    if data.media_type not in ("image", "video"):
+        raise HTTPException(400, "media_type must be image or video")
+    p = {
+        "post_id": f"pst_{uuid.uuid4().hex[:10]}",
+        "author_id": user["user_id"],
+        "author_name": user["name"],
+        "author_picture": user.get("picture"),
+        "media_type": data.media_type,
+        "media_url": data.media_url,
+        "caption": data.caption,
+        "likes": [],
+        "comment_count": 0,
+        "created_at": iso(now_utc()),
+    }
+    await db.media_posts.insert_one(p)
+    await add_points(user["user_id"], 3, "Shared media post")
+    p.pop("_id", None)
+    return p
+
+@api.post("/feed/posts/{post_id}/like")
+async def like_post(post_id: str, user: dict = Depends(get_current_user)):
+    p = await db.media_posts.find_one({"post_id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    liked = user["user_id"] in (p.get("likes") or [])
+    op = "$pull" if liked else "$addToSet"
+    await db.media_posts.update_one({"post_id": post_id}, {op: {"likes": user["user_id"]}})
+    return {"liked": not liked}
+
+@api.get("/feed/posts/{post_id}/comments")
+async def post_comments(post_id: str, user: dict = Depends(get_current_user)):
+    items = await db.post_comments.find({"post_id": post_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return {"comments": items}
+
+@api.post("/feed/posts/{post_id}/comments")
+async def add_comment(post_id: str, data: CommentCreate, user: dict = Depends(get_current_user)):
+    p = await db.media_posts.find_one({"post_id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    c = {
+        "comment_id": f"cm_{uuid.uuid4().hex[:10]}",
+        "post_id": post_id,
+        "author_id": user["user_id"],
+        "author_name": user["name"],
+        "author_picture": user.get("picture"),
+        "body": data.body,
+        "created_at": iso(now_utc()),
+    }
+    await db.post_comments.insert_one(c)
+    await db.media_posts.update_one({"post_id": post_id}, {"$inc": {"comment_count": 1}})
+    if p["author_id"] != user["user_id"]:
+        await push_notification(p["author_id"], "New comment", f"{user['name']}: {data.body[:40]}", "comment", "/feed")
+    c.pop("_id", None)
+    return c
+
+# ----------------- TCG: Collections, Cards, Tracker, Forms -----------------
+class TCGCollectionCreate(BaseModel):
+    name: str
+    description: str = ""
+    cover_image: Optional[str] = None
+
+class TCGCardCreate(BaseModel):
+    collection_id: str
+    name: str
+    image_url: str
+    rarity: str = "Common"
+    number: str = ""
+
+class TCGClaimCreate(BaseModel):
+    collection_id: str
+    member_notes: str = ""
+
+class TCGTradeInCreate(BaseModel):
+    card_ids: List[str]  # list of card_id values owned by user
+    shipping_notes: str = ""
+
+class TCGTradeCreate(BaseModel):
+    partner_user_id: str
+    offered_card_ids: List[str]
+    wanted_card_ids: List[str]
+    notes: str = ""
+
+@api.get("/tcg/collections")
+async def tcg_collections(user: dict = Depends(get_current_user)):
+    cols = await db.tcg_collections.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"collections": cols}
+
+@api.post("/tcg/collections")
+async def create_collection(data: TCGCollectionCreate, user: dict = Depends(require_admin)):
+    c = {"collection_id": f"col_{uuid.uuid4().hex[:10]}", **data.model_dump(), "created_at": iso(now_utc())}
+    await db.tcg_collections.insert_one(c)
+    c.pop("_id", None)
+    return c
+
+@api.get("/tcg/collections/{collection_id}/cards")
+async def tcg_cards(collection_id: str, user: dict = Depends(get_current_user)):
+    cards = await db.tcg_cards.find({"collection_id": collection_id}, {"_id": 0}).sort("number", 1).to_list(1000)
+    owned = await db.tcg_user_cards.find({"user_id": user["user_id"], "collection_id": collection_id}, {"_id": 0}).to_list(1000)
+    owned_ids = {o["card_id"] for o in owned}
+    return {"cards": cards, "owned_ids": list(owned_ids)}
+
+@api.post("/tcg/cards")
+async def create_card(data: TCGCardCreate, user: dict = Depends(require_admin)):
+    c = {"card_id": f"card_{uuid.uuid4().hex[:10]}", **data.model_dump(), "created_at": iso(now_utc())}
+    await db.tcg_cards.insert_one(c)
+    c.pop("_id", None)
+    return c
+
+@api.post("/tcg/toggle-card/{card_id}")
+async def toggle_card(card_id: str, user: dict = Depends(get_current_user)):
+    card = await db.tcg_cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(404, "Card not found")
+    existing = await db.tcg_user_cards.find_one({"user_id": user["user_id"], "card_id": card_id})
+    if existing:
+        await db.tcg_user_cards.delete_one({"user_id": user["user_id"], "card_id": card_id})
+        return {"owned": False}
+    await db.tcg_user_cards.insert_one({
+        "user_id": user["user_id"],
+        "card_id": card_id,
+        "collection_id": card["collection_id"],
+        "added_at": iso(now_utc()),
+    })
+    return {"owned": True}
+
+@api.get("/tcg/my-collection")
+async def my_collection(user: dict = Depends(get_current_user)):
+    owned = await db.tcg_user_cards.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(5000)
+    # enrich with card data
+    card_ids = [o["card_id"] for o in owned]
+    cards = []
+    if card_ids:
+        cards = await db.tcg_cards.find({"card_id": {"$in": card_ids}}, {"_id": 0}).to_list(5000)
+    return {"cards": cards}
+
+@api.post("/tcg/claim")
+async def tcg_claim(data: TCGClaimCreate, user: dict = Depends(get_current_user)):
+    # count cards owned in collection vs total cards
+    total = await db.tcg_cards.count_documents({"collection_id": data.collection_id})
+    owned = await db.tcg_user_cards.count_documents({"user_id": user["user_id"], "collection_id": data.collection_id})
+    claim = {
+        "claim_id": f"clm_{uuid.uuid4().hex[:10]}",
+        "user_id": user["user_id"],
+        "user_name": user["name"],
+        "collection_id": data.collection_id,
+        "owned_count": owned,
+        "total_count": total,
+        "member_notes": data.member_notes,
+        "status": "pending",  # pending | approved | rejected
+        "created_at": iso(now_utc()),
+    }
+    await db.tcg_claims.insert_one(claim)
+    claim.pop("_id", None)
+    return claim
+
+@api.get("/tcg/claims")
+async def list_claims(user: dict = Depends(get_current_user)):
+    q = {} if user.get("role") == "admin" else {"user_id": user["user_id"]}
+    items = await db.tcg_claims.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"claims": items}
+
+@api.post("/tcg/claims/{claim_id}/approve")
+async def approve_claim(claim_id: str, user: dict = Depends(require_admin)):
+    claim = await db.tcg_claims.find_one({"claim_id": claim_id})
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+    await db.tcg_claims.update_one({"claim_id": claim_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
+    # Award 50 points + 100 anime_cash for completing a theme set
+    await add_points(claim["user_id"], 50, "Theme set completion award")
+    await add_anime_cash(claim["user_id"], 100, "Theme set completion cash")
+    await push_notification(claim["user_id"], "Award approved!", "You earned 50 pts + 100 Anime Cash for your theme set.", "tcg", "/tcg/claims")
+    return {"ok": True}
+
+@api.post("/tcg/tradein")
+async def tcg_tradein(data: TCGTradeInCreate, user: dict = Depends(get_current_user)):
+    t = {
+        "tradein_id": f"ti_{uuid.uuid4().hex[:10]}",
+        "user_id": user["user_id"],
+        "user_name": user["name"],
+        "card_ids": data.card_ids,
+        "shipping_notes": data.shipping_notes,
+        "status": "pending",
+        "created_at": iso(now_utc()),
+    }
+    await db.tcg_tradeins.insert_one(t)
+    t.pop("_id", None)
+    return t
+
+@api.get("/tcg/tradeins")
+async def list_tradeins(user: dict = Depends(get_current_user)):
+    q = {} if user.get("role") == "admin" else {"user_id": user["user_id"]}
+    items = await db.tcg_tradeins.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"tradeins": items}
+
+@api.post("/tcg/trade")
+async def tcg_trade(data: TCGTradeCreate, user: dict = Depends(get_current_user)):
+    partner = await db.users.find_one({"user_id": data.partner_user_id})
+    if not partner:
+        raise HTTPException(404, "Partner not found")
+    t = {
+        "trade_id": f"td_{uuid.uuid4().hex[:10]}",
+        "from_user_id": user["user_id"],
+        "from_name": user["name"],
+        "to_user_id": data.partner_user_id,
+        "to_name": partner["name"],
+        "offered_card_ids": data.offered_card_ids,
+        "wanted_card_ids": data.wanted_card_ids,
+        "notes": data.notes,
+        "status": "pending",
+        "created_at": iso(now_utc()),
+    }
+    await db.tcg_trades.insert_one(t)
+    await push_notification(data.partner_user_id, "Trade request", f"{user['name']} wants to trade cards with you.", "tcg", "/tcg/trades")
+    t.pop("_id", None)
+    return t
+
+@api.get("/tcg/trades")
+async def list_trades(user: dict = Depends(get_current_user)):
+    q = {} if user.get("role") == "admin" else {"$or": [{"from_user_id": user["user_id"]}, {"to_user_id": user["user_id"]}]}
+    items = await db.tcg_trades.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"trades": items}
+
+# ----------------- Member Dashboard: Trips, Giveaways, Contests, Articles -----------------
+class TripCreate(BaseModel):
+    title: str
+    description: str
+    destination: str
+    starts_at: str
+    price: float = 0.0
+    cover_image: Optional[str] = None
+    signup_link: Optional[str] = None
+
+@api.get("/trips")
+async def list_trips(user: dict = Depends(get_current_user)):
+    items = await db.trips.find({}, {"_id": 0}).sort("starts_at", 1).to_list(100)
+    return {"trips": items}
+
+@api.post("/trips")
+async def create_trip(data: TripCreate, user: dict = Depends(require_admin)):
+    t = {"trip_id": f"tr_{uuid.uuid4().hex[:10]}", **data.model_dump(), "created_at": iso(now_utc())}
+    await db.trips.insert_one(t)
+    t.pop("_id", None)
+    return t
+
+class GiveawayCreate(BaseModel):
+    title: str
+    description: str
+    prize_type: str = "anime_item"  # or "gift_card"
+    ends_at: str
+    cover_image: Optional[str] = None
+
+@api.get("/giveaways")
+async def list_giveaways(user: dict = Depends(get_current_user)):
+    items = await db.giveaways.find({}, {"_id": 0}).sort("ends_at", 1).to_list(50)
+    for g in items:
+        g["entered"] = user["user_id"] in (g.get("entries") or [])
+        g["entry_count"] = len(g.get("entries") or [])
+        g.pop("entries", None)
+    return {"giveaways": items}
+
+@api.post("/giveaways")
+async def create_giveaway(data: GiveawayCreate, user: dict = Depends(require_admin)):
+    g = {"giveaway_id": f"gv_{uuid.uuid4().hex[:10]}", **data.model_dump(), "entries": [], "created_at": iso(now_utc())}
+    await db.giveaways.insert_one(g)
+    g.pop("_id", None)
+    g["entered"] = False
+    g["entry_count"] = 0
+    g.pop("entries", None)
+    return g
+
+@api.post("/giveaways/{giveaway_id}/enter")
+async def enter_giveaway(giveaway_id: str, user: dict = Depends(get_current_user)):
+    g = await db.giveaways.find_one({"giveaway_id": giveaway_id})
+    if not g:
+        raise HTTPException(404, "Giveaway not found")
+    if user["user_id"] in (g.get("entries") or []):
+        return {"entered": True}
+    await db.giveaways.update_one({"giveaway_id": giveaway_id}, {"$addToSet": {"entries": user["user_id"]}})
+    return {"entered": True}
+
+class ContestCreate(BaseModel):
+    title: str
+    description: str
+    rules: str = ""
+    ends_at: str
+    cover_image: Optional[str] = None
+    prize: str = ""
+
+@api.get("/contests")
+async def list_contests(user: dict = Depends(get_current_user)):
+    items = await db.contests.find({}, {"_id": 0}).sort("ends_at", 1).to_list(50)
+    return {"contests": items}
+
+@api.post("/contests")
+async def create_contest(data: ContestCreate, user: dict = Depends(require_admin)):
+    c = {"contest_id": f"ct_{uuid.uuid4().hex[:10]}", **data.model_dump(), "created_at": iso(now_utc())}
+    await db.contests.insert_one(c)
+    c.pop("_id", None)
+    return c
+
+class ArticleSubmissionCreate(BaseModel):
+    title: str
+    kind: str = "blog"  # "blog" or "magazine"
+    summary: str = ""
+    content: str
+
+@api.get("/articles")
+async def list_articles(user: dict = Depends(get_current_user)):
+    q = {} if user.get("role") == "admin" else {"user_id": user["user_id"]}
+    items = await db.article_submissions.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"articles": items}
+
+@api.post("/articles")
+async def create_article(data: ArticleSubmissionCreate, user: dict = Depends(get_current_user)):
+    a = {
+        "article_id": f"ar_{uuid.uuid4().hex[:10]}",
+        "user_id": user["user_id"],
+        "user_name": user["name"],
+        **data.model_dump(),
+        "status": "pending",
+        "created_at": iso(now_utc()),
+    }
+    await db.article_submissions.insert_one(a)
+    a.pop("_id", None)
+    return a
+
+@api.post("/articles/{article_id}/approve")
+async def approve_article(article_id: str, user: dict = Depends(require_admin)):
+    a = await db.article_submissions.find_one({"article_id": article_id})
+    if not a:
+        raise HTTPException(404, "Not found")
+    reward = 25 if a["kind"] == "blog" else 50
+    await db.article_submissions.update_one({"article_id": article_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
+    await add_points(a["user_id"], reward, f"Approved {a['kind']} article")
+    await push_notification(a["user_id"], "Article approved!", f"Your submission '{a['title']}' earned {reward} points.", "article", "/dashboard/submit-article")
+    return {"ok": True}
+
+# ----------------- Extended Profile -----------------
+class ExtendedProfile(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    birthday: Optional[str] = None
+    city: Optional[str] = None
+    favorite_anime: Optional[str] = None
+    favorite_manga: Optional[str] = None
+    cosplay_interest: Optional[str] = None
+    how_you_found_us: Optional[str] = None
+    notes: Optional[str] = None
+
+@api.get("/profile/extended")
+async def get_extended(user: dict = Depends(get_current_user)):
+    doc = await db.extended_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {"user_id": user["user_id"]}
+    return doc
+
+@api.put("/profile/extended")
+async def put_extended(data: ExtendedProfile, user: dict = Depends(get_current_user)):
+    payload = {k: v for k, v in data.model_dump(exclude_none=True).items()}
+    payload["user_id"] = user["user_id"]
+    payload["updated_at"] = iso(now_utc())
+    await db.extended_profiles.update_one({"user_id": user["user_id"]}, {"$set": payload}, upsert=True)
+    return payload
+
+# ----------------- Events with Tickets (Stripe) -----------------
+class EventTicketEventUpdate(BaseModel):
+    ticket_price: Optional[float] = None
+    ticket_enabled: bool = False
+
+@api.patch("/events/{event_id}")
+async def update_event(event_id: str, data: EventTicketEventUpdate, user: dict = Depends(require_admin)):
+    await db.events.update_one({"event_id": event_id}, {"$set": data.model_dump(exclude_none=True)})
+    ev = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    return ev
+
+class TicketCheckoutIn(BaseModel):
+    event_id: str
+    quantity: int = 1
+    origin_url: str  # window.location.origin
+
+@api.post("/payments/tickets/checkout")
+async def ticket_checkout(data: TicketCheckoutIn, request: Request, user: dict = Depends(get_current_user)):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+    ev = await db.events.find_one({"event_id": data.event_id})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    if not ev.get("ticket_enabled") or not ev.get("ticket_price"):
+        raise HTTPException(400, "Tickets not available for this event")
+    qty = max(1, min(10, int(data.quantity)))
+    amount = float(ev["ticket_price"]) * qty
+    api_key = os.environ["STRIPE_API_KEY"]
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    success_url = f"{data.origin_url}/tickets/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{data.origin_url}/events"
+    metadata = {
+        "user_id": user["user_id"],
+        "event_id": ev["event_id"],
+        "quantity": str(qty),
+        "kind": "event_ticket",
+    }
+    req = CheckoutSessionRequest(amount=amount, currency="usd", success_url=success_url, cancel_url=cancel_url, metadata=metadata)
+    session = await stripe_checkout.create_checkout_session(req)
+    await db.payment_transactions.insert_one({
+        "session_id": session.session_id,
+        "user_id": user["user_id"],
+        "event_id": ev["event_id"],
+        "amount": amount,
+        "currency": "usd",
+        "quantity": qty,
+        "metadata": metadata,
+        "payment_status": "initiated",
+        "status": "open",
+        "created_at": iso(now_utc()),
+    })
+    return {"url": session.url, "session_id": session.session_id}
+
+@api.get("/payments/status/{session_id}")
+async def payment_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not tx:
+        raise HTTPException(404, "Transaction not found")
+    api_key = os.environ["STRIPE_API_KEY"]
+    host_url = str(request.base_url).rstrip("/")
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+    status = await stripe_checkout.get_checkout_status(session_id)
+
+    # Idempotent ticket creation
+    if status.payment_status == "paid" and tx.get("payment_status") != "paid":
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": "paid", "status": status.status, "paid_at": iso(now_utc())}},
+        )
+        qty = int(tx.get("quantity", 1))
+        for _ in range(qty):
+            await db.tickets.insert_one({
+                "ticket_id": f"tk_{uuid.uuid4().hex[:10]}",
+                "user_id": tx["user_id"],
+                "event_id": tx["event_id"],
+                "session_id": session_id,
+                "created_at": iso(now_utc()),
+            })
+        await push_notification(tx["user_id"], "Ticket confirmed!", f"You have {qty} ticket(s). See My Tickets.", "ticket", "/tickets")
+    elif status.payment_status != tx.get("payment_status"):
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": status.payment_status, "status": status.status}},
+        )
+    return {
+        "status": status.status,
+        "payment_status": status.payment_status,
+        "amount_total": status.amount_total,
+        "currency": status.currency,
+    }
+
+@api.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    body = await request.body()
+    signature = request.headers.get("Stripe-Signature", "")
+    api_key = os.environ["STRIPE_API_KEY"]
+    host_url = str(request.base_url).rstrip("/")
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+    try:
+        webhook_response = await stripe_checkout.handle_webhook(body, signature)
+    except Exception as e:
+        logger.warning(f"stripe webhook error: {e}")
+        return {"ok": False}
+    # Mirror the logic: flip to paid and grant ticket once
+    if webhook_response and webhook_response.session_id:
+        tx = await db.payment_transactions.find_one({"session_id": webhook_response.session_id})
+        if tx and webhook_response.payment_status == "paid" and tx.get("payment_status") != "paid":
+            await db.payment_transactions.update_one(
+                {"session_id": webhook_response.session_id},
+                {"$set": {"payment_status": "paid", "status": "complete", "paid_at": iso(now_utc())}},
+            )
+            qty = int(tx.get("quantity", 1))
+            for _ in range(qty):
+                await db.tickets.insert_one({
+                    "ticket_id": f"tk_{uuid.uuid4().hex[:10]}",
+                    "user_id": tx["user_id"],
+                    "event_id": tx["event_id"],
+                    "session_id": webhook_response.session_id,
+                    "created_at": iso(now_utc()),
+                })
+    return {"ok": True}
+
+@api.get("/tickets")
+async def my_tickets(user: dict = Depends(get_current_user)):
+    items = await db.tickets.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Enrich with event info
+    ev_ids = list({t["event_id"] for t in items})
+    events = {}
+    if ev_ids:
+        async for ev in db.events.find({"event_id": {"$in": ev_ids}}, {"_id": 0}):
+            events[ev["event_id"]] = ev
+    for t in items:
+        t["event"] = events.get(t["event_id"])
+    return {"tickets": items}
 
 # ----------------- Wire up -----------------
 app.include_router(api)

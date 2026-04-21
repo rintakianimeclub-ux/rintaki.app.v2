@@ -215,6 +215,7 @@ async def startup():
     await db.notifications.create_index("user_id")
     await db.events.create_index("starts_at")
     await db.daily_logins.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.tcg_user_cards.create_index([("user_id", 1), ("card_id", 1)], unique=True)
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@rintaki.org").lower()
@@ -984,6 +985,8 @@ async def approve_claim(claim_id: str, user: dict = Depends(require_admin)):
     claim = await db.tcg_claims.find_one({"claim_id": claim_id})
     if not claim:
         raise HTTPException(404, "Claim not found")
+    if claim.get("status") == "approved":
+        return {"ok": True, "already": True}
     await db.tcg_claims.update_one({"claim_id": claim_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
     # Award 50 points + 100 anime_cash for completing a theme set
     await add_points(claim["user_id"], 50, "Theme set completion award")
@@ -1149,6 +1152,8 @@ async def approve_article(article_id: str, user: dict = Depends(require_admin)):
     a = await db.article_submissions.find_one({"article_id": article_id})
     if not a:
         raise HTTPException(404, "Not found")
+    if a.get("status") == "approved":
+        return {"ok": True, "already": True}
     reward = 25 if a["kind"] == "blog" else 50
     await db.article_submissions.update_one({"article_id": article_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
     await add_points(a["user_id"], reward, f"Approved {a['kind']} article")

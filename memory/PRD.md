@@ -1,79 +1,83 @@
-# Rintaki Anime Club — Product Requirements Doc
+# Rintaki Anime Club — Mobile App (PRD)
 
 ## Original problem statement
 > "I want an app that connects my website pages, forums, points system, and more. www.rintaki.org"
 
-## User-chosen scope (2026-04-21)
-- Progressive Web App (mobile-first)
-- Hybrid: pulls articles live from rintaki.org + native features
-- Features: Forums, Points, User Accounts, Notifications, Direct Messaging, Admin Newsletters, Admin Videos, Events
-- Auth: Both JWT email/password AND Emergent-managed Google OAuth
-- Design: inspired by rintaki.org (anime/Japanese culture, coral reds)
+## User-chosen scope (updated 2026-04-21, pivot 2)
+- **Mobile-first app** (desktop website stays as rintaki.org; the app is primarily for phones)
+- **Hybrid**: pulls articles live from rintaki.org + native features
+- **Features**:
+  - Forum, Forum threads + replies + likes
+  - Rinaka Points + Anime Cash (dual currency)
+  - Direct Messaging between members
+  - **Media feed** (Instagram-style image/video posts, likes, comments)
+  - **Magazines** (PDF issues — admin uploads URL, in-app PDF viewer)
+  - **Library** external link → libib.com/u/rintakianimeclub
+  - **Events with Stripe ticket purchasing** + "My Tickets"
+  - **Trading Card Game hub**: collection tracker with image check-off, claim theme set award form, trade-in to club form, member-to-member trade form
+  - **Members-only dashboard**: extended profile, points guide, library guide, trips & conventions, members shop (link to WooCommerce), members Discord, monthly giveaways, contests, article submission (blog/magazine)
+  - **Social media links**: TikTok, Instagram, Twitter, Facebook, YouTube, Public Discord
+  - **Auth**: JWT email/password + Emergent Google OAuth
 
 ## Architecture
 - Backend: FastAPI (`/app/backend/server.py`) + MongoDB (`rintaki_db`)
-- Frontend: React 19 + Tailwind + @phosphor-icons/react (`/app/frontend/src`)
-- Design system: Neo-Brutalist Sticker Aesthetic (Outfit + DM Sans fonts, 2px black borders, hard shadows, coral/yellow/mint palette)
-- Auth: httpOnly cookies — `access_token` (JWT, 1h) + `refresh_token` (7d) for email/password; `session_token` (7d) for Google. Unified `get_current_user` checks all three.
+- Frontend: React 19 + Tailwind + @phosphor-icons/react, mobile-first layout (max-w-md)
+- Design: Neo-Brutalist Sticker Aesthetic — coral reds + mustard yellow + mint, 2px black borders, hard shadows
+- Navigation: Bottom 5-tab bar (Home · Forum · Cards · Feed · More) + sticky top header with points/cash pills
 
-## Implemented (2026-04-21)
-### Backend (43/43 pytest cases pass)
-- Auth: register, login, logout, /me, Google session exchange, brute-force lockout (5 tries / 15 min), admin seeding on startup
-- Profile: PATCH /api/profile (name/bio/picture)
-- Rintaki feed proxy: `/api/rintaki/feed` pulls latest posts from rintaki.org WP REST API
-- Forums: threads + replies + likes + filters + notifications on reply (awards +5 thread, +2 reply, +1 per like)
-- Points: `/points/me`, `/points/daily-claim` (+5, once per day), `/points/leaderboard`
-- Events: list + admin create + auto-notify all members
-- Newsletters (Otaku World): list + admin publish + auto-notify
-- Videos: list + admin create
-- Direct Messages: conversations list, per-user thread, send, auto-notify recipient
-- Notifications: list + unread count + mark all read
-- Members directory, Admin stats, single-user profile fetch
+## Implemented (Iteration 1 + 2 — 101 backend tests passing)
+### Iter 1 — core
+- Auth (JWT + Google session)
+- Profile, Forums + replies + likes, Points + leaderboard + daily claim
+- Events, Newsletters, Videos, Messages, Notifications, Members, Admin stats
+- Rintaki.org WP REST feed proxy
 
-### Frontend (verified via screenshot + auth flow)
-- Login page with Google + email, neo-brutalist split hero
-- Register page with welcome bonus callout
-- AuthCallback for Emergent OAuth (hash fragment → `/api/auth/google/session`)
-- Home feed: hero (daily claim), rintaki.org articles, events, leaderboard top-3, hot threads, newsletters
-- Forums list + category filters + new-thread modal
-- Forum thread detail with replies, like toggle
-- Events list + admin create modal
-- Points page with animated podium leaderboard, "how to earn" card, badges, activity timeline
-- Newsletters: zine-style cards + reader modal + admin publish
-- Videos: VHS-style thumbnails + embed modal (YouTube/Vimeo) + admin add
-- Messages: two-pane (convo list + thread) with bubble styling
-- Members directory with DM shortcut
-- Notifications center with mark-all-read
-- Profile page (self + others) with inline edit modal
-- Admin dashboard with stat tiles
-- Mobile bottom-nav + desktop sticky header with sub-nav
+### Iter 2 — mobile pivot
+- **Media Feed** (`/feed`) — Instagram-style posts + comments + likes (+3 pts per post)
+- **Magazines** (`/magazines`) — PDF viewer modal, admin upload, delete
+- **Library** (`/library`) — Libib external link card
+- **TCG hub** (`/tcg`) — Collection tracker with ownership toggle, claim form (auto-counts owned vs total), trade-in form (bulk card select), member-to-member trade form (offer/want grids)
+- **Claim approval** awards +50 pts + 100 Anime Cash (idempotent; guarded)
+- **Events Stripe checkout** — Admin toggles `ticket_enabled` + `ticket_price`; user pays via Stripe; success page polls status and creates ticket records idempotently (webhook + polling both covered)
+- **Members Dashboard** (`/dashboard`) — tile grid hub
+  - Extended profile (phone, birthday, city, anime prefs, cosplay, notes)
+  - Points guide + Library guide (static docs)
+  - Trips & conventions, Members shop link, Members Discord
+  - Giveaways (enter, auto-track entries), Contests
+  - Article submissions (blog +25 pts / magazine +50 pts on approval — idempotent)
+- **Social links** (`/api/links`) — env-configurable
+- **More hub** (`/more`) — all secondary pages + social tiles + logout
 
 ## Seeded data
-- Admin user `admin@rintaki.org` / `Admin@Rintaki2026`
-- 2 demo events (Anime MKE Meetup, Otaku Hangout Night)
-- 1 Otaku World newsletter
-- 1 pinned welcome thread
+- Admin: `admin@rintaki.org` / `Admin@Rintaki2026`
+- 2 demo events, 1 welcome thread, 1 newsletter
+- 1 TCG collection "Fashionista 2026" with 6 sample cards
+- 1 magazine "Otaku World Vol. 5, Issue 1" (real rintaki.org PDF)
+- 1 monthly giveaway
 
-## Known test artifacts
-- Backend testing agent created `TEST_*` prefixed records (threads, newsletter, event, video, members). Harmless; can be purged via `db.forum_threads.deleteMany({title: /^TEST_/})` etc.
-
-## P0 Backlog / Next tasks
-- Install PWA manifest + service worker for real install-to-homescreen
-- Profile image upload (currently URL-based)
-- Newsletter email fan-out (currently in-app only)
-- Admin moderation tools (pin thread, delete reply)
+## P0 Backlog
+- Real file/image uploads (currently URL-based) — move to S3 or similar
+- PWA manifest + service worker (installable home-screen icon)
+- Payment webhook signature verification (already in stripe lib; ensure STRIPE_API_KEY is real on production)
 
 ## P1 Backlog
-- Rich text in forum posts + image uploads
-- Push notifications
-- Event RSVP + calendar export
-- Shop/fundraiser embed (Stripe already on rintaki.org)
-- Refresh-token rotation endpoint wired to the UI
+- Admin approval UI for claims/articles/tradeins (currently API-only, admin can approve via curl or we can add a simple admin reviews page)
+- Push notifications (OneSignal / FCM)
+- Rich text + image uploads in forum posts
+- Email notifications for winners (SendGrid)
+- Stronger role system (moderator vs admin)
 
 ## P2 Backlog
-- Badges achievements engine (first thread, 7-day streak, etc.)
-- Gamified trading-card collection sync with rintaki.org
-- Search across forums + newsletters
+- Card collection statistics (rarity breakdown, trade-history log)
+- WooCommerce SSO (spend anime_cash at checkout)
+- Event RSVP + calendar export
+- Badges/achievements engine
+- Trade request acceptance/rejection flow (currently records only)
+
+## Stripe
+- Test key `sk_test_emergent` in env. Test card `4242 4242 4242 4242` with any future date + CVC.
+- Webhook endpoint: `/api/webhook/stripe`
+- Polling endpoint: `/api/payments/status/{session_id}` (idempotent)
 
 ## Test credentials
 See `/app/memory/test_credentials.md`.

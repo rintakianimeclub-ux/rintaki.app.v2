@@ -1,0 +1,117 @@
+{
+  "project_name": "Rintaki Anime Club Society App",
+  "theme": {
+    "mode": "light",
+    "archetype": "6 (Vibrant Play) + Neo-Brutalist Sticker Aesthetic",
+    "description": "A modern, playful, 'otaku hub' community app designed with a neo-brutalist sticker aesthetic. The UI uses thick borders, raw overlapping elements, and high-contrast warm coral reds to create a tactile, energetic fan-club experience avoiding generic SaaS looks."
+  },
+  "colors": {
+    "light": {
+      "background": "#FFFDF9",
+      "foreground": "#0F0F0F",
+      "primary": "#F94E41",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#FFD166",
+      "secondary_foreground": "#0F0F0F",
+      "accent": "#4ECDC4",
+      "accent_foreground": "#0F0F0F",
+      "muted": "#F0EBE1",
+      "muted_foreground": "#666666",
+      "border": "#111111",
+      "card": "#FFFFFF",
+      "card_foreground": "#0F0F0F"
+    },
+    "dark": {
+      "background": "#121212",
+      "foreground": "#FAFAFA",
+      "primary": "#F94E41",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#FFD166",
+      "secondary_foreground": "#111111",
+      "accent": "#4ECDC4",
+      "accent_foreground": "#111111",
+      "muted": "#2A2A2A",
+      "muted_foreground": "#A1A1A1",
+      "border": "#FAFAFA",
+      "card": "#1E1E1E",
+      "card_foreground": "#FAFAFA"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Outfit, sans-serif",
+      "body": "DM Sans, sans-serif"
+    },
+    "scales": {
+      "h1": "text-4xl md:text-5xl lg:text-6xl font-black tracking-tight",
+      "h2": "text-2xl md:text-3xl lg:text-4xl font-bold tracking-tight",
+      "h3": "text-xl md:text-2xl font-bold tracking-tight",
+      "body": "text-base font-medium leading-relaxed",
+      "small": "text-sm font-semibold tracking-wide",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em]"
+    }
+  },
+  "spacing_and_layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "section_gap": "gap-12 md:gap-24",
+    "grid_strategy": "Asymmetrical 'Bento' grid with overlapping elements. Use col-span-full md:col-span-8 for heroes, and smaller spans for 'sticker' side widgets.",
+    "borders_and_shadows": "Neo-brutalist core: border-2 border-black (or border-white in dark mode). Hard shadows using `shadow-[4px_4px_0px_rgba(17,17,17,1)]` (light mode) that squash on hover (`active:translate-x-[4px] active:translate-y-[4px] active:shadow-none`)."
+  },
+  "components": {
+    "buttons": "Pill-shaped (rounded-full) or completely rectangular (rounded-none). Always border-2 border-black. High contrast text.",
+    "cards": "White background, thick black borders, hard drop shadow. Feel like physical polaroids or sticky notes. Slight rotations (e.g., `-rotate-1` or `rotate-2`) for decorative cards.",
+    "avatars": "Circular but with a thick 2px border. Can overlap to show community members.",
+    "navigation": "Bottom navigation for mobile (mobile-first PWA feel). Sticky header on desktop with a glassmorphism blur OR solid background with a thick bottom border.",
+    "badges": "Sticker aesthetic. Bright yellow or mint backgrounds, jagged or pill shapes, used for Rinaka Points and User Roles."
+  },
+  "icons_and_assets": {
+    "library": "@phosphor-icons/react (Duotone or Bold weight to match thick borders)",
+    "installation_command": "yarn add @phosphor-icons/react"
+  },
+  "media_urls": {
+    "splash_background": {
+      "url": "https://images.pexels.com/photos/35089102/pexels-photo-35089102.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Vintage Japanese posters showcasing nostalgic designs. Use as an opaque background with a heavy color overlay for the login screen."
+    },
+    "hero_community": {
+      "url": "https://images.unsplash.com/photo-1722803921446-70be3842871e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxhbmltZSUyMGNvbnZlbnRpb24lMjBjcm93ZHxlbnwwfHx8fDE3NzY4MDYyMjh8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Anime convention crowd. Use in the community/events header."
+    },
+    "newsletter_cover": {
+      "url": "https://images.pexels.com/photos/31369734/pexels-photo-31369734.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Colorful Oni Mural. Great for the 'Otaku World' Newsletter thumbnail or banner."
+    },
+    "event_thumbnail_1": {
+      "url": "https://images.pexels.com/photos/30462154/pexels-photo-30462154.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Cosplayer at a convention."
+    },
+    "event_thumbnail_2": {
+      "url": "https://images.unsplash.com/photo-1697541986349-08125ac922a1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxyZXRybyUyMGphcGFuZXNlJTIwYWVzdGhldGljfGVufDB8fHx8MTc3NjgwNjI0Mnww&ixlib=rb-4.1.0&q=85",
+      "description": "Retro Japanese Vending Machine. Good for casual club meetups."
+    },
+    "profile_banner": {
+      "url": "https://images.unsplash.com/photo-1748740345094-7b8d8128e147?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwyfHxqYXBhbmVzZSUyMHBvcCUyMGN1bHR1cmV8ZW58MHx8fHwxNzc2ODA2MjI4fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Godzilla city background, awesome for a default user profile header."
+    }
+  },
+  "screen_blueprints": {
+    "splash_login": "Full-screen vibrant container. Large bold logo text. 'Sign in with Google' and 'Email' buttons styled as massive, pill-shaped stickers. Background features a collage of vintage Japanese posters (muted/overlay).",
+    "home_feed": "Feed of articles pulled from rintaki.org. Each post is a 'card' with a 2px border and hard shadow. A 'Rinaka Points' floating sticker widget pinned to the top right of the feed.",
+    "forums_list_thread": "List view where threads look like sticky notes or forum boards. High contrast tags (e.g., [Anime], [Manga], [Events]) in solid color pills. Thread detail has chat-bubble styling for replies.",
+    "events_calendar": "Cards showing upcoming conventions (Anime MKE, Anime Central) and club meetups. Image thumbnails have a raw, unpolished crop.",
+    "points_leaderboard": "Gamified screen. Top 3 users shown on a literal 'podium' graphic or extra-large avatars. Points displayed in bright yellow pill badges. Daily login claim button is massive and animated.",
+    "newsletters": "Otaku World section. Horizontal scroll of issues, styled like retro zine covers with thick borders and halftone patterns.",
+    "videos": "Video gallery from admin. Thumbnails mimic physical VHS tapes or polaroid frames.",
+    "dms": "Direct messaging interface. Clean but playful. Message bubbles have 1px borders and slight roundness. Avatar stickers next to messages.",
+    "profile": "User profile with their avatar, point balance, and earned 'badges' (achievements) displayed as a grid of stickers. Tabbed interface for their forum posts and saved events."
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the 'Neo-Brutalist Sticker Aesthetic' throughout the app. Use `border-2 border-black shadow-[4px_4px_0px_rgba(0,0,0,1)]` for interactive elements.",
+    "Use @phosphor-icons/react for iconography.",
+    "Install and use the fonts 'Outfit' for headers and 'DM Sans' for body text via Google Fonts.",
+    "Avoid generic Tailwind shadows (e.g., shadow-md, shadow-lg). Only use the hard custom shadows.",
+    "Use Shadcn components but override their default minimalist styles to match the brutalist guidelines (e.g., override rounded corners, add thick borders).",
+    "Make sure navigation works well on mobile (Bottom Tabs) as this is a PWA/hybrid app.",
+    "Ensure the 'Rinaka Points' feature is visually prominent using the secondary yellow color."
+  ]
+}

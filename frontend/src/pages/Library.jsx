@@ -16,7 +16,7 @@ export default function Library() {
       <Card className="relative overflow-hidden p-0">
         <div className="bg-[var(--primary)] text-white p-5 grain">
           <BookOpen size={36} weight="fill" />
-          <h2 className="font-black text-2xl mt-3">Rintaki Anime Club Library</h2>
+          <h2 className="font-black text-2xl mt-3">Rintaki Anime Club Society Library</h2>
           <p className="text-sm opacity-90 mt-1">Browse, search, and check out the club's full collection.</p>
         </div>
         <div className="p-4">

@@ -32,7 +32,10 @@ export default function Register() {
       <form onSubmit={submit} className="w-full max-w-md pop-in" data-testid="register-form">
         <Link to="/login" className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-[var(--primary)] border-2 border-black rounded-full flex items-center justify-center text-white font-black">R</div>
-          <div className="font-black text-xl">RINTAKI</div>
+          <div>
+            <div className="font-black text-xl leading-none">RINTAKI</div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-[var(--muted-fg)]">Anime Club Society</div>
+          </div>
         </Link>
         <h2 className="font-black text-3xl md:text-4xl mb-1">Join the club</h2>
         <p className="text-[var(--muted-fg)] mb-6">Get <span className="hand-underline font-bold">10 free points</span> on signup.</p>

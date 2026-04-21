@@ -35,7 +35,7 @@ export default function Layout({ children }) {
             </div>
             <div className="leading-tight min-w-0">
               <div className="font-black text-base tracking-tight truncate">RINTAKI</div>
-              <div className="text-[9px] uppercase tracking-[0.25em] text-[var(--muted-fg)] truncate">Anime Club</div>
+              <div className="text-[9px] uppercase tracking-[0.25em] text-[var(--muted-fg)] truncate">Anime Club Society</div>
             </div>
           </Link>
 

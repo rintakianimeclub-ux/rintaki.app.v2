@@ -51,7 +51,7 @@ export default function Login() {
               Your<br/>otaku<br/><span className="hand-underline text-black">hub</span>.
             </h1>
             <p className="max-w-sm font-medium text-white/90">
-              Forums, events, newsletters, and Rinaka Points — the Rintaki universe in one app.
+              Forums, events, newsletters, and Rinaka Points — the Rintaki Anime Club Society universe in one app.
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -67,7 +67,10 @@ export default function Login() {
         <form onSubmit={submit} className="w-full max-w-md pop-in" data-testid="login-form">
           <div className="md:hidden flex items-center gap-3 mb-6">
             <div className="w-10 h-10 bg-[var(--primary)] border-2 border-black rounded-full flex items-center justify-center text-white font-black">R</div>
-            <div className="font-black text-xl">RINTAKI</div>
+            <div>
+              <div className="font-black text-xl leading-none">RINTAKI</div>
+              <div className="text-[10px] uppercase tracking-[0.25em] text-[var(--muted-fg)]">Anime Club Society</div>
+            </div>
           </div>
           <h2 className="font-black text-3xl md:text-4xl mb-1">Welcome back</h2>
           <p className="text-[var(--muted-fg)] mb-6">Sign in to claim your daily points.</p>

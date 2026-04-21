@@ -30,7 +30,7 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGO = "HS256"
 
-app = FastAPI(title="Rintaki Anime Club API")
+app = FastAPI(title="Rintaki Anime Club Society API")
 api = APIRouter(prefix="/api")
 
 # ----------------- Helpers -----------------
@@ -345,7 +345,7 @@ async def startup():
 # ----------------- Auth Endpoints -----------------
 @api.get("/")
 async def root():
-    return {"ok": True, "app": "Rintaki Anime Club API"}
+    return {"ok": True, "app": "Rintaki Anime Club Society API"}
 
 @api.post("/auth/register")
 async def register(data: RegisterIn, response: Response):

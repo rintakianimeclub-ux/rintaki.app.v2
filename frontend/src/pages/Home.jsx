@@ -54,14 +54,18 @@ export default function Home() {
     <div className="space-y-6">
       {/* Hero */}
       <section className="relative overflow-hidden rounded-2xl border-2 border-black shadow-[6px_6px_0_#111] bg-[var(--primary)] text-white grain">
-        <img src="https://images.unsplash.com/photo-1722803921446-70be3842871e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxhbmltZSUyMGNvbnZlbnRpb24lMjBjcm93ZHxlbnwwfHx8fDE3NzY4MDYyMjh8MA&ixlib=rb-4.1.0&q=85" className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-55" alt="" />
+        <img
+          src={feed[0]?.image || "https://images.unsplash.com/photo-1722803921446-70be3842871e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzB8MHwxfHNlYXJjaHwxfHxhbmltZSUyMGNvbnZlbnRpb24lMjBjcm93ZHxlbnwwfHx8fDE3NzY4MDYyMjh8MA&ixlib=rb-4.1.0&q=85"}
+          className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-55"
+          alt=""
+        />
         <div className="relative p-5">
           <div className="flex items-start gap-3">
             <Logo size={72} ring="bg-white" className="shadow-[4px_4px_0_#111] tilt-2" />
             <div className="flex-1 min-w-0">
               <Sticker color="secondary" className="tilt-1">★ Hey {user?.name?.split(" ")[0] || "Otaku"}</Sticker>
-              <h1 className="font-black text-2xl leading-[1.05] mt-2">
-                <span className="bg-black px-2">Rintaki</span><br/>Anime Club Society
+              <h1 className="font-black text-4xl leading-[1.05] mt-2">
+                <span className="bg-black px-2">Welcome!</span>
               </h1>
             </div>
           </div>

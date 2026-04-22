@@ -982,16 +982,47 @@ class TCGCardCreate(BaseModel):
 
 class TCGClaimCreate(BaseModel):
     collection_id: str
+    # rintaki.org/collection-claim form fields
+    member_id: Optional[str] = None
+    first_name: str
+    last_name: str
+    email: EmailStr
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    collection_name: Optional[str] = None
     member_notes: str = ""
 
 class TCGTradeInCreate(BaseModel):
-    card_ids: List[str]  # list of card_id values owned by user
+    # rintaki.org/trade-in form fields
+    items_text: str  # multi-line item list "1. CardID, Qty, Collection"
+    type_items: str = ""
+    first_name: str
+    last_name: str
+    email: EmailStr
+    member_id: Optional[str] = None
+    payment_type: str = "US Dollar"  # "US Dollar" | "Anime Cash"
+    payment_method: str = ""  # 3 preferred methods
+    # legacy optional
+    card_ids: List[str] = []
     shipping_notes: str = ""
 
 class TCGTradeCreate(BaseModel):
-    partner_user_id: str
-    offered_card_ids: List[str]
-    wanted_card_ids: List[str]
+    # rintaki.org/trade form fields
+    items_trading: str
+    items_receiving: str
+    first_name: str
+    last_name: str
+    email: EmailStr
+    member_id: Optional[str] = None
+    partner_first_name: str
+    partner_last_name: str
+    partner_email: EmailStr
+    # legacy/app-native optional
+    partner_user_id: Optional[str] = None
+    offered_card_ids: List[str] = []
+    wanted_card_ids: List[str] = []
     notes: str = ""
 
 @api.get("/tcg/collections")
@@ -1172,19 +1203,18 @@ async def my_collection(user: dict = Depends(get_current_user)):
 
 @api.post("/tcg/claim")
 async def tcg_claim(data: TCGClaimCreate, user: dict = Depends(get_current_user)):
-    # count cards owned in collection vs total cards
     total = await db.tcg_cards.count_documents({"collection_id": data.collection_id})
     owned = await db.tcg_user_cards.count_documents({"user_id": user["user_id"], "collection_id": data.collection_id})
+    payload = data.model_dump()
     claim = {
         "claim_id": f"clm_{uuid.uuid4().hex[:10]}",
         "user_id": user["user_id"],
         "user_name": user["name"],
-        "collection_id": data.collection_id,
         "owned_count": owned,
         "total_count": total,
-        "member_notes": data.member_notes,
-        "status": "pending",  # pending | approved | rejected
+        "status": "pending",
         "created_at": iso(now_utc()),
+        **payload,
     }
     await db.tcg_claims.insert_one(claim)
     claim.pop("_id", None)
@@ -1216,8 +1246,7 @@ async def tcg_tradein(data: TCGTradeInCreate, user: dict = Depends(get_current_u
         "tradein_id": f"ti_{uuid.uuid4().hex[:10]}",
         "user_id": user["user_id"],
         "user_name": user["name"],
-        "card_ids": data.card_ids,
-        "shipping_notes": data.shipping_notes,
+        **data.model_dump(),
         "status": "pending",
         "created_at": iso(now_utc()),
     }
@@ -1233,23 +1262,25 @@ async def list_tradeins(user: dict = Depends(get_current_user)):
 
 @api.post("/tcg/trade")
 async def tcg_trade(data: TCGTradeCreate, user: dict = Depends(get_current_user)):
-    partner = await db.users.find_one({"user_id": data.partner_user_id})
-    if not partner:
-        raise HTTPException(404, "Partner not found")
+    partner_name = f"{data.partner_first_name} {data.partner_last_name}".strip()
+    partner_user_id = data.partner_user_id
+    if partner_user_id:
+        partner = await db.users.find_one({"user_id": partner_user_id})
+        if partner:
+            partner_name = partner.get("name", partner_name)
     t = {
         "trade_id": f"td_{uuid.uuid4().hex[:10]}",
         "from_user_id": user["user_id"],
         "from_name": user["name"],
-        "to_user_id": data.partner_user_id,
-        "to_name": partner["name"],
-        "offered_card_ids": data.offered_card_ids,
-        "wanted_card_ids": data.wanted_card_ids,
-        "notes": data.notes,
+        "to_user_id": partner_user_id,
+        "to_name": partner_name,
+        **data.model_dump(),
         "status": "pending",
         "created_at": iso(now_utc()),
     }
     await db.tcg_trades.insert_one(t)
-    await push_notification(data.partner_user_id, "Trade request", f"{user['name']} wants to trade cards with you.", "tcg", "/tcg/trades")
+    if partner_user_id:
+        await push_notification(partner_user_id, "Trade request", f"{user['name']} wants to trade cards with you.", "tcg", "/tcg/trade")
     t.pop("_id", None)
     return t
 

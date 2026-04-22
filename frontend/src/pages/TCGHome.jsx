@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Button, Sticker, EmptyState, Input, Textarea } from "@/components/ui-brutal";
+import TradingCardGuide from "@/components/TradingCardGuide";
 import { CreditCard, Trophy, ArrowsLeftRight, PaperPlaneTilt, Plus, CaretRight, Cards, X, DownloadSimple, Spinner } from "@phosphor-icons/react";
 
 export default function TCGHome() {
@@ -48,6 +49,8 @@ export default function TCGHome() {
         <h1 className="font-black text-3xl flex items-center gap-2"><CreditCard size={28} weight="fill" className="text-[var(--primary)]" /> Trading Cards</h1>
         <p className="text-[var(--muted-fg)] text-sm">Track your collection, claim awards & trade with the club.</p>
       </div>
+
+      <TradingCardGuide />
 
       <div className="grid grid-cols-2 gap-3">
         <Card className="bg-[var(--primary)] text-white p-3" data-testid="tcg-stat-owned">
@@ -99,8 +102,8 @@ export default function TCGHome() {
             <Card className="flex items-center gap-3">
               <div className="w-10 h-10 bg-[var(--secondary)] border-2 border-black rounded-full flex items-center justify-center"><Trophy size={18} weight="fill" /></div>
               <div className="flex-1 min-w-0">
-                <div className="font-black">Claim a theme set award</div>
-                <div className="text-xs text-[var(--muted-fg)]">You've completed a full collection? Submit here.</div>
+                <div className="font-black">Claim Prize</div>
+                <div className="text-xs text-[var(--muted-fg)]">Completed a full collection? Submit proof for $25–$100.</div>
               </div>
               <CaretRight size={18} weight="bold" />
             </Card>
@@ -109,8 +112,8 @@ export default function TCGHome() {
             <Card className="flex items-center gap-3">
               <div className="w-10 h-10 bg-[var(--accent)] border-2 border-black rounded-full flex items-center justify-center"><PaperPlaneTilt size={18} weight="fill" /></div>
               <div className="flex-1 min-w-0">
-                <div className="font-black">Trade in cards to the club</div>
-                <div className="text-xs text-[var(--muted-fg)]">Send cards back to the club for store credit.</div>
+                <div className="font-black">Trade-In</div>
+                <div className="text-xs text-[var(--muted-fg)]">Send extra cards to the club for cash or Anime Cash.</div>
               </div>
               <CaretRight size={18} weight="bold" />
             </Card>
@@ -119,8 +122,8 @@ export default function TCGHome() {
             <Card className="flex items-center gap-3">
               <div className="w-10 h-10 bg-[var(--primary)] text-white border-2 border-black rounded-full flex items-center justify-center"><ArrowsLeftRight size={18} weight="fill" /></div>
               <div className="flex-1 min-w-0">
-                <div className="font-black">Trade with another member</div>
-                <div className="text-xs text-[var(--muted-fg)]">Middleman trade through the club.</div>
+                <div className="font-black">Trade with Someone</div>
+                <div className="text-xs text-[var(--muted-fg)]">Middleman trade between two people, handled by the club.</div>
               </div>
               <CaretRight size={18} weight="bold" />
             </Card>

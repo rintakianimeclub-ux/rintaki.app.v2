@@ -485,6 +485,93 @@ async def get_user(user_id: str):
     return public_user(u)
 
 # ----------------- Rintaki Feed -----------------
+@api.get("/rintaki/forum")
+async def rintaki_forum():
+    """Scrape the wpForo notice-board from rintaki.org into structured data."""
+    from bs4 import BeautifulSoup
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as hc:
+            r = await hc.get(
+                "https://rintaki.org/notice-board/",
+                headers={"User-Agent": "Mozilla/5.0 RintakiApp/1.0"},
+            )
+            if r.status_code != 200:
+                return {"groups": [], "stats": {}}
+            html = r.text
+        soup = BeautifulSoup(html, "lxml")
+
+        groups = []
+        # wpForo typically uses .wpforo-forum / .wpforo-subforum / tr.wpforo-forum-row
+        # Fall back to any anchor to /notice-board/forum/...
+        forum_links = soup.select("a[href*='/notice-board/forum/']")
+        seen = set()
+        for a in forum_links:
+            href = a.get("href", "")
+            title = a.get_text(strip=True)
+            if not title or href in seen:
+                continue
+            seen.add(href)
+            desc = ""
+            last_post = None
+            # Climb to the enclosing row
+            row = a
+            for _ in range(5):
+                row = row.parent
+                if not row:
+                    break
+                cls = " ".join(row.get("class", []) if hasattr(row, "get") else [])
+                if "wpforo-forum" in cls or row.name in ("tr",):
+                    break
+            if row:
+                desc_el = row.find(class_=lambda c: c and "forum-description" in c)
+                if desc_el:
+                    desc = desc_el.get_text(" ", strip=True)
+                last_el = row.find(class_=lambda c: c and "last-post" in c)
+                if last_el:
+                    last_a = last_el.find("a", href=lambda h: h and "/topic/" in h)
+                    if last_a:
+                        last_post = {
+                            "title": last_a.get_text(strip=True),
+                            "url": last_a.get("href"),
+                        }
+            # As a last resort, clean the text around the link
+            if not desc:
+                parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
+                # strip the title + common wpForo words
+                desc_try = parent_text.replace(title, "", 1).strip()
+                for junk in ["Added to cart", "Last post", "Close cart", "Your Cart Is Empty"]:
+                    desc_try = desc_try.replace(junk, "")
+                desc = desc_try.strip().split("  ")[0][:180]
+            groups.append({"title": title, "url": href, "description": desc, "last_post": last_post})
+
+        topics = []
+        seen_t = set()
+        for a in soup.select("a[href*='/notice-board/topic/']"):
+            href = a.get("href", "").split("#")[0]
+            title = a.get_text(strip=True)
+            if not title or href in seen_t:
+                continue
+            seen_t.add(href)
+            topics.append({"title": title, "url": a.get("href")})
+
+        stats = {}
+        for label in ("Topics", "Posts", "Views", "Users", "Online"):
+            el = soup.find(string=lambda s: s and s.strip() == label)
+            if el:
+                num_el = el.find_previous(string=lambda s: s and s.strip().isdigit())
+                if num_el:
+                    stats[label.lower()] = int(num_el.strip())
+
+        return {
+            "source_url": "https://rintaki.org/notice-board/",
+            "groups": groups[:50],
+            "topics": topics[:50],
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.warning(f"rintaki forum scrape error: {e}")
+        return {"groups": [], "topics": [], "stats": {}}
+
 @api.get("/rintaki/feed")
 async def rintaki_feed():
     try:
@@ -880,6 +967,12 @@ class TCGCollectionCreate(BaseModel):
     description: str = ""
     cover_image: Optional[str] = None
 
+class TCGCollectionSync(BaseModel):
+    name: str
+    description: str = ""
+    cover_image: Optional[str] = None
+    source_url: str  # WP page with gallery of card images
+
 class TCGCardCreate(BaseModel):
     collection_id: str
     name: str
@@ -912,6 +1005,129 @@ async def create_collection(data: TCGCollectionCreate, user: dict = Depends(requ
     await db.tcg_collections.insert_one(c)
     c.pop("_id", None)
     return c
+
+def _parse_card_filename(name: str) -> dict:
+    """Parse e.g. '001-rin.jpg' or '002-aiko-rare.jpg' → number, name, rarity."""
+    import re
+    base = name.rsplit(".", 1)[0]
+    base = re.sub(r"-\d{2,4}x\d{2,4}$", "", base)  # strip WP resize suffix like -300x200
+    parts = [p for p in re.split(r"[-_\s]+", base) if p]
+    number = ""
+    rarity = "Common"
+    name_parts = []
+    rarities = {"common", "rare", "legendary", "secret"}
+    for p in parts:
+        if p.isdigit() and not number:
+            number = p
+        elif p.lower() in rarities:
+            rarity = p.capitalize()
+        else:
+            name_parts.append(p)
+    display = " ".join(name_parts).title() if name_parts else base
+    return {"number": number, "name": display, "rarity": rarity}
+
+async def _scrape_page_images(url: str) -> list:
+    """Return list of image URLs found on a WP page (unique, in order)."""
+    from bs4 import BeautifulSoup
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as hc:
+        r = await hc.get(url, headers={"User-Agent": "Mozilla/5.0 RintakiApp/1.0"})
+        if r.status_code != 200:
+            raise HTTPException(400, f"Could not fetch page (HTTP {r.status_code})")
+        html = r.text
+    soup = BeautifulSoup(html, "lxml")
+    # Prefer gallery / content area images
+    seen = set()
+    imgs = []
+    # Look for images inside .wp-block-gallery first, fall back to all content images
+    scopes = soup.select(".wp-block-gallery, .entry-content, main, article") or [soup]
+    for scope in scopes:
+        for img in scope.find_all("img"):
+            # prefer full-size: data-full-url, then data-src, then src
+            src = img.get("data-full-url") or img.get("data-src") or img.get("src") or ""
+            srcset = img.get("srcset") or ""
+            if srcset:
+                # Pick the largest from srcset
+                try:
+                    largest = max(
+                        (s.strip().rsplit(" ", 1) for s in srcset.split(",") if s.strip()),
+                        key=lambda t: int(t[1].rstrip("w")) if len(t) == 2 and t[1].rstrip("w").isdigit() else 0,
+                    )
+                    if len(largest) >= 1:
+                        src = largest[0]
+                except Exception:
+                    pass
+            if not src:
+                continue
+            # Skip tiny / ui images
+            if any(x in src for x in ("avatar", "gravatar", "emoji", "logo", "icon", "loading")):
+                continue
+            # strip WP resize suffix to get the original file URL
+            import re
+            src_canon = re.sub(r"-\d{2,4}x\d{2,4}(?=\.[a-zA-Z]{3,4}$)", "", src)
+            if src_canon in seen:
+                continue
+            seen.add(src_canon)
+            imgs.append({"url": src_canon, "filename": src_canon.rsplit("/", 1)[-1], "alt": img.get("alt", "")})
+    return imgs
+
+@api.post("/tcg/collections/sync")
+async def sync_collection_from_url(data: TCGCollectionSync, user: dict = Depends(require_admin)):
+    imgs = await _scrape_page_images(data.source_url)
+    if not imgs:
+        raise HTTPException(400, "No images found at that URL")
+    col_id = f"col_{uuid.uuid4().hex[:10]}"
+    await db.tcg_collections.insert_one({
+        "collection_id": col_id,
+        "name": data.name,
+        "description": data.description,
+        "cover_image": data.cover_image or imgs[0]["url"],
+        "source_url": data.source_url,
+        "created_at": iso(now_utc()),
+    })
+    added = 0
+    for i, img in enumerate(imgs, 1):
+        meta = _parse_card_filename(img["filename"])
+        display_name = img.get("alt") or meta["name"] or f"Card {i:03d}"
+        await db.tcg_cards.insert_one({
+            "card_id": f"card_{uuid.uuid4().hex[:10]}",
+            "collection_id": col_id,
+            "name": display_name,
+            "number": meta["number"] or f"{i:03d}",
+            "rarity": meta["rarity"],
+            "image_url": img["url"],
+            "created_at": iso(now_utc()),
+        })
+        added += 1
+    return {"collection_id": col_id, "added": added}
+
+@api.post("/tcg/collections/{collection_id}/resync")
+async def resync_collection(collection_id: str, user: dict = Depends(require_admin)):
+    col = await db.tcg_collections.find_one({"collection_id": collection_id})
+    if not col:
+        raise HTTPException(404, "Collection not found")
+    if not col.get("source_url"):
+        raise HTTPException(400, "This collection has no source_url; create it via /tcg/collections/sync first.")
+    imgs = await _scrape_page_images(col["source_url"])
+    existing = await db.tcg_cards.find({"collection_id": collection_id}, {"_id": 0, "image_url": 1}).to_list(5000)
+    existing_urls = {c["image_url"] for c in existing}
+    count_existing = await db.tcg_cards.count_documents({"collection_id": collection_id})
+    added = 0
+    for i, img in enumerate(imgs, 1):
+        if img["url"] in existing_urls:
+            continue
+        meta = _parse_card_filename(img["filename"])
+        display_name = img.get("alt") or meta["name"] or f"Card {count_existing + added + 1:03d}"
+        await db.tcg_cards.insert_one({
+            "card_id": f"card_{uuid.uuid4().hex[:10]}",
+            "collection_id": collection_id,
+            "name": display_name,
+            "number": meta["number"] or f"{count_existing + added + 1:03d}",
+            "rarity": meta["rarity"],
+            "image_url": img["url"],
+            "created_at": iso(now_utc()),
+        })
+        added += 1
+    return {"added": added, "total_found": len(imgs), "already_present": len(imgs) - added}
 
 @api.get("/tcg/collections/{collection_id}/cards")
 async def tcg_cards(collection_id: str, user: dict = Depends(get_current_user)):

@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Input } from "@/components/ui-brutal";
-import { ArrowLeft, CheckCircle, Plus, X } from "@phosphor-icons/react";
+import { ArrowLeft, CheckCircle, Plus, X, ArrowsClockwise } from "@phosphor-icons/react";
 
 export default function TCGCollection() {
   const { id } = useParams();
@@ -15,6 +15,8 @@ export default function TCGCollection() {
   const [viewOwnedOnly, setViewOwnedOnly] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [newCard, setNewCard] = useState({ name: "", image_url: "", rarity: "Common", number: "" });
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncMsg, setResyncMsg] = useState("");
 
   const load = async () => {
     const [cols, data] = await Promise.all([
@@ -78,10 +80,29 @@ export default function TCGCollection() {
       </Card>
 
       {isAdmin && (
-        <Button onClick={() => setAddOpen(true)} variant="ghost" className="w-full" data-testid="add-card-btn">
-          <Plus size={14} weight="bold" /> Add card
-        </Button>
+        <div className="flex gap-2">
+          {collection.source_url && (
+            <Button variant="accent" onClick={async () => {
+              setResyncing(true);
+              setResyncMsg("");
+              try {
+                const { data } = await api.post(`/tcg/collections/${id}/resync`);
+                setResyncMsg(data.added === 0 ? "Up to date — no new cards found." : `✓ Added ${data.added} new cards.`);
+                await load();
+              } catch (e) {
+                setResyncMsg(e.response?.data?.detail || "Resync failed");
+              } finally { setResyncing(false); }
+            }} disabled={resyncing} className="flex-1" data-testid="resync-btn">
+              <ArrowsClockwise size={14} weight="bold" className={resyncing ? "animate-spin" : ""} />
+              {resyncing ? "Resyncing…" : "Re-sync from website"}
+            </Button>
+          )}
+          <Button onClick={() => setAddOpen(true)} variant="ghost" className={collection.source_url ? "" : "w-full"} data-testid="add-card-btn">
+            <Plus size={14} weight="bold" /> Add card
+          </Button>
+        </div>
       )}
+      {resyncMsg && <div className={`text-sm font-bold ${resyncMsg.startsWith("✓") ? "text-green-700" : "text-[var(--primary)]"}`}>{resyncMsg}</div>}
 
       <div className="grid grid-cols-3 gap-2">
         {visible.map((c) => {

@@ -1118,6 +1118,94 @@ async def delete_gallery_link(gallery_id: str, user: dict = Depends(require_admi
     await db.gallery_links.delete_one({"gallery_id": gallery_id})
     return {"ok": True}
 
+class GallerySyncRequest(BaseModel):
+    source_url: str  # WP page URL containing the NextGEN album shortcode (e.g. https://rintaki.org/gallery/)
+    section_filter: Optional[str] = None  # if set, only import galleries under this h2/h3 section (e.g. "AnimeMilwaukee")
+    replace: bool = False  # if True, clear existing sync'd cards first
+
+@api.post("/gallery/links/sync")
+async def sync_gallery_links(data: GallerySyncRequest, user: dict = Depends(require_admin)):
+    try:
+        async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "Mozilla/5.0 RintakiApp"}, follow_redirects=True) as c:
+            r = await c.get(data.source_url)
+            r.raise_for_status()
+            html = r.text
+    except Exception as e:
+        raise HTTPException(400, f"Could not fetch source URL: {e}")
+
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "lxml")
+    anchors = soup.select('a[href*="/nggallery/album/"]')
+    if not anchors:
+        raise HTTPException(400, "No NextGEN gallery links found on that page. Make sure the page uses an Imagely NextGEN album shortcode.")
+
+    # Build unique gallery list with parent section
+    seen = {}
+    for a in anchors:
+        href = (a.get("href") or "").strip()
+        if not href or href in seen:
+            continue
+        img = a.find("img")
+        title = (a.get("title") or a.get_text(strip=True) or "Gallery").strip()
+        section = None
+        for prev in a.find_all_previous(["h2", "h3"]):
+            section = prev.get_text(strip=True)
+            break
+        # photo count sits in a sibling <p class="ngg-album-gallery-image-counter">
+        count = None
+        parent = a
+        for _ in range(5):
+            parent = parent.parent
+            if parent is None:
+                break
+            ctag = parent.find("p", class_="ngg-album-gallery-image-counter")
+            if ctag:
+                strong = ctag.find("strong")
+                if strong and strong.get_text(strip=True).isdigit():
+                    count = int(strong.get_text(strip=True))
+                break
+        seen[href] = {
+            "title": title,
+            "cover_image": (img.get("src") if img else None),
+            "section": section,
+            "photo_count": count,
+        }
+
+    if data.section_filter:
+        seen = {k: v for k, v in seen.items() if (v["section"] or "").lower() == data.section_filter.lower()}
+
+    if not seen:
+        raise HTTPException(400, "No matching galleries found.")
+
+    if data.replace:
+        await db.gallery_links.delete_many({"synced": True})
+
+    created = 0
+    skipped = 0
+    for href, g in seen.items():
+        # Skip duplicates by URL
+        exists = await db.gallery_links.find_one({"url": href})
+        if exists:
+            skipped += 1
+            continue
+        doc = {
+            "gallery_id": f"gl_{uuid.uuid4().hex[:10]}",
+            "title": g["title"],
+            "url": href,
+            "kind": "photos",
+            "cover_image": g["cover_image"],
+            "description": (f"{g['photo_count']} Photos" if g["photo_count"] else "") + (f" · {g['section']}" if g["section"] else ""),
+            "section": g["section"],
+            "photo_count": g["photo_count"],
+            "synced": True,
+            "source_url": data.source_url,
+            "created_at": iso(now_utc()),
+        }
+        await db.gallery_links.insert_one(doc)
+        created += 1
+
+    return {"created": created, "skipped": skipped, "total_found": len(seen)}
+
 # ----------------- Social / Links -----------------
 @api.get("/links")
 async def get_links():

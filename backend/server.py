@@ -1532,6 +1532,108 @@ async def get_links():
         },
     }
 
+# ----------------- WooCommerce Shop (proxy to WC Store API) -----------------
+WC_BASE = os.environ.get("RINTAKI_WC_BASE", "https://rintaki.org")
+_wc_cache: dict = {}  # key -> (ts, data)
+WC_TTL = 600  # 10 minutes
+
+def _wc_simplify_product(p: dict) -> dict:
+    prices = p.get("prices") or {}
+    cur = prices.get("currency_symbol") or "$"
+    # prices.price is a string in minor units ("1200") — divide by 10^minor_unit (usually 2)
+    try:
+        minor = int(prices.get("currency_minor_unit", 2))
+        price_str = prices.get("price") or "0"
+        price_val = float(price_str) / (10 ** minor)
+        price_formatted = f"{cur}{price_val:,.2f}"
+    except Exception:
+        price_formatted = p.get("price_html") or ""
+        price_val = None
+    imgs = p.get("images") or []
+    return {
+        "id": p.get("id"),
+        "name": p.get("name"),
+        "slug": p.get("slug"),
+        "permalink": p.get("permalink"),
+        "price": price_formatted,
+        "price_value": price_val,
+        "on_sale": bool(p.get("on_sale")),
+        "short_description": p.get("short_description") or "",
+        "description": p.get("description") or "",
+        "image": imgs[0]["src"] if imgs else None,
+        "images": [i.get("src") for i in imgs if i.get("src")],
+        "categories": [{"id": c.get("id"), "name": c.get("name"), "slug": c.get("slug")} for c in (p.get("categories") or [])],
+        "rating": p.get("average_rating"),
+        "review_count": p.get("review_count"),
+        "in_stock": (p.get("is_in_stock") if p.get("is_in_stock") is not None else True),
+        "add_to_cart_url": f"{WC_BASE.rstrip('/')}/?add-to-cart={p.get('id')}&quantity=1",
+    }
+
+async def _wc_fetch(path: str, params: Optional[dict] = None):
+    async with httpx.AsyncClient(timeout=20, headers={"User-Agent": "Mozilla/5.0 RintakiApp"}, follow_redirects=True) as c:
+        r = await c.get(f"{WC_BASE.rstrip('/')}/wp-json/wc/store/v1{path}", params=params or {})
+        r.raise_for_status()
+        return r.json()
+
+@api.get("/shop/products")
+async def shop_products(page: int = 1, per_page: int = 20, search: str = "", category: Optional[int] = None, refresh: bool = False):
+    per_page = max(1, min(per_page, 50))
+    cache_key = f"products:{page}:{per_page}:{search}:{category}"
+    now_ts = _time.time()
+    if not refresh and cache_key in _wc_cache:
+        ts, data = _wc_cache[cache_key]
+        if now_ts - ts < WC_TTL:
+            return {**data, "source": "cache"}
+    params = {"page": page, "per_page": per_page}
+    if search:
+        params["search"] = search
+    if category:
+        params["category"] = category
+    try:
+        raw = await _wc_fetch("/products", params=params)
+        products = [_wc_simplify_product(p) for p in raw]
+        data = {"products": products, "page": page, "per_page": per_page}
+        _wc_cache[cache_key] = (now_ts, data)
+        return {**data, "source": "live"}
+    except Exception as e:
+        logger.warning(f"shop_products failed: {e}")
+        if cache_key in _wc_cache:
+            return {**_wc_cache[cache_key][1], "source": "cache-stale"}
+        raise HTTPException(502, f"Could not fetch products: {e}")
+
+@api.get("/shop/categories")
+async def shop_categories(refresh: bool = False):
+    now_ts = _time.time()
+    if not refresh and "categories" in _wc_cache:
+        ts, data = _wc_cache["categories"]
+        if now_ts - ts < WC_TTL:
+            return {**data, "source": "cache"}
+    try:
+        raw = await _wc_fetch("/products/categories", params={"per_page": 50})
+        cats = [{"id": c.get("id"), "name": c.get("name"), "slug": c.get("slug"), "count": c.get("count")} for c in raw if c.get("count", 0) > 0]
+        data = {"categories": cats}
+        _wc_cache["categories"] = (now_ts, data)
+        return {**data, "source": "live"}
+    except Exception as e:
+        logger.warning(f"shop_categories failed: {e}")
+        return {"categories": []}
+
+@api.get("/shop/products/{product_id}")
+async def shop_product_detail(product_id: int, refresh: bool = False):
+    cache_key = f"product:{product_id}"
+    now_ts = _time.time()
+    if not refresh and cache_key in _wc_cache:
+        ts, data = _wc_cache[cache_key]
+        if now_ts - ts < WC_TTL:
+            return {**data, "source": "cache"}
+    try:
+        raw = await _wc_fetch(f"/products/{product_id}")
+        data = {"product": _wc_simplify_product(raw)}
+        _wc_cache[cache_key] = (now_ts, data)
+        return {**data, "source": "live"}
+    except Exception as e:
+        raise HTTPException(404, f"Product not found: {e}")
+
 # ----------------- Media Feed (Instagram-style) -----------------
 class MediaPostCreate(BaseModel):
     media_type: str  # "image" or "video"

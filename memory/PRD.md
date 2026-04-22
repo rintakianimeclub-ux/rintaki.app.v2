@@ -84,7 +84,17 @@ See `/app/memory/test_credentials.md`.
 
 ## Changelog
 
-### 2026-04-22 — PMPro levels auto-sync
+### 2026-04-22 — WooCommerce shop integration
+- **New `/shop` page** + 5th quick-tile on Home ("Shop") — public access.
+- Backend proxies WooCommerce Store API at `https://rintaki.org/wp-json/wc/store/v1`:
+  - `GET /api/shop/products?page=&per_page=&search=&category=` (20 per page, 10-min cache)
+  - `GET /api/shop/categories`
+  - `GET /api/shop/products/{id}` detail
+- Store API is public/no-auth; returns live product name, price, image(s), short + full description, categories, stock, on_sale flag.
+- Frontend: 2-column product grid with live search (350ms debounce), category filter chips, pagination, "On sale" / "Out of stock" badges. Tap product → bottom-sheet modal with full detail + big "Add to cart — $X" CTA.
+- Checkout flow: "Add to cart" opens `https://rintaki.org/?add-to-cart={id}&quantity=1` in a new tab — item auto-adds to WC cart, user completes payment on web.
+
+
 - **Join page now auto-syncs** from `https://rintaki.org/membership-account/membership-levels/` every 1 hour (cached server-side).
 - Scraper: finds every `a[href*="pmpro_level=N"]`, walks up to the card ancestor (h3 + ul), extracts name, subtitle (Monthly/Yearly Subscription), price via `$\s*[\d.]+\s*/\s*(mo|yr)` regex, and all benefit bullets.
 - New endpoint `GET /api/memberships/levels?refresh=1` admins can force-refresh; UI has a "Force refresh" button at the bottom of the Join page for admins.

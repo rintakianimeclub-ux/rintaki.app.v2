@@ -4,9 +4,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button } from "@/components/ui-brutal";
 import Logo from "@/components/Logo";
-import {
-  Fire, Calendar, ArrowUpRight, Trophy, Lightning,
-  BookOpen, Buildings, FilmSlate, SignIn, Sparkle, CurrencyCircleDollar,
+import { Fire, Calendar, ArrowUpRight, Trophy, Lightning,
+  BookOpen, Buildings, FilmSlate, SignIn, Sparkle, CurrencyCircleDollar, ShoppingBag,
 } from "@phosphor-icons/react";
 
 function stripHtml(html = "") {
@@ -135,11 +134,12 @@ export default function Home() {
       </section>
 
       {/* Quick tiles — public */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-5 gap-1.5">
         <QuickTile to="/events" icon={Calendar} label="Events" />
         <QuickTile to="/magazines" icon={BookOpen} label="Mag" />
         <QuickTile to="/library" icon={Buildings} label="Library" />
         <QuickTile to="/events-gallery" icon={FilmSlate} label="Gallery" />
+        <QuickTile to="/shop" icon={ShoppingBag} label="Shop" />
       </div>
 
       {/* Latest rintaki articles */}
@@ -222,9 +222,9 @@ export default function Home() {
 function QuickTile({ to, icon: Icon, label }) {
   return (
     <Link to={to} data-testid={`quick-${label.toLowerCase()}`}>
-      <Card className="p-2.5 text-center">
+      <Card className="p-2 text-center">
         <Icon size={18} weight="fill" className="mx-auto" />
-        <div className="text-[10px] font-black uppercase tracking-widest mt-1">{label}</div>
+        <div className="text-[9px] font-black uppercase tracking-widest mt-1 leading-tight">{label}</div>
       </Card>
     </Link>
   );

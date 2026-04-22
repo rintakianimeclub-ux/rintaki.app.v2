@@ -35,6 +35,7 @@ import DashboardProfile from "@/pages/DashboardProfile";
 import { PointsGuide, LibraryGuide } from "@/pages/Guides";
 import { Trips, Giveaways, Contests, SubmitArticle, MembersShop, MembersDiscord } from "@/pages/DashboardSubs";
 import Join from "@/pages/Join";
+import Shop from "@/pages/Shop";
 
 function Public({ children }) {
   const { loading } = useAuth();
@@ -108,6 +109,7 @@ function RouterShell() {
       <Route path="/library" element={<Public><Library /></Public>} />
       <Route path="/events-gallery" element={<Public><EventsGallery /></Public>} />
       <Route path="/join" element={<Public><Join /></Public>} />
+      <Route path="/shop" element={<Public><Shop /></Public>} />
 
       <Route path="/tcg" element={<Public><TCGHome /></Public>} />
       <Route path="/tcg/collections/:id" element={<Public><TCGCollection /></Public>} />

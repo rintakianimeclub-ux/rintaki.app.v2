@@ -12,6 +12,7 @@ import {
   Trophy,
   CurrencyCircleDollar,
   SignIn,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 
 const BASE_TABS = [
@@ -70,7 +71,7 @@ export default function Layout({ children }) {
               </>
             )}
 
-            {/* Notifications + profile for any logged-in user */}
+            {/* Notifications + DM + profile for any logged-in user */}
             {user && (
               <>
                 <button
@@ -81,6 +82,17 @@ export default function Layout({ children }) {
                 >
                   <Bell size={15} weight="bold" />
                 </button>
+                {isMember && (
+                  <button
+                    onClick={() => navigate("/messages")}
+                    className="w-9 h-9 bg-[var(--secondary)] border-2 border-black rounded-full flex items-center justify-center brutal-btn"
+                    data-testid="dm-btn"
+                    aria-label="Direct messages"
+                    title="Messages"
+                  >
+                    <ChatCircleDots size={15} weight="bold" />
+                  </button>
+                )}
                 <button
                   onClick={() => navigate("/profile")}
                   className="w-9 h-9 bg-[var(--accent)] border-2 border-black rounded-full flex items-center justify-center brutal-btn font-black overflow-hidden"

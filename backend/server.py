@@ -1714,19 +1714,39 @@ class MediaPostCreate(BaseModel):
     media_type: str  # "image" or "video"
     media_url: str
     caption: str = ""
+    video_duration: Optional[float] = None  # seconds, client-reported
 
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=500)
 
+VIDEO_MAX_SECONDS = 15
+POINTS_PER_PHOTO = 1
+POINTS_PER_VIDEO = 2
+
 @api.get("/feed/posts")
-async def list_posts(user: dict = Depends(get_current_user)):
-    posts = await db.media_posts.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+async def list_posts(user: dict = Depends(get_current_user_optional)):
+    """Public feed — only approved posts. Admins additionally see pending via /feed/pending."""
+    posts = await db.media_posts.find({"status": "approved"}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    return {"posts": posts}
+
+@api.get("/feed/my-pending")
+async def my_pending_posts(user: dict = Depends(require_member)):
+    """A member's own pending posts so they can see submission status."""
+    posts = await db.media_posts.find({"author_id": user["user_id"], "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"posts": posts}
+
+@api.get("/feed/pending")
+async def admin_pending_posts(user: dict = Depends(require_admin)):
+    posts = await db.media_posts.find({"status": "pending"}, {"_id": 0}).sort("created_at", 1).to_list(200)
     return {"posts": posts}
 
 @api.post("/feed/posts")
 async def create_post(data: MediaPostCreate, user: dict = Depends(require_member)):
     if data.media_type not in ("image", "video"):
         raise HTTPException(400, "media_type must be image or video")
+    if data.media_type == "video":
+        if data.video_duration is not None and data.video_duration > VIDEO_MAX_SECONDS + 0.5:
+            raise HTTPException(400, f"Videos must be {VIDEO_MAX_SECONDS} seconds or shorter.")
     p = {
         "post_id": f"pst_{uuid.uuid4().hex[:10]}",
         "author_id": user["user_id"],
@@ -1735,14 +1755,74 @@ async def create_post(data: MediaPostCreate, user: dict = Depends(require_member
         "media_type": data.media_type,
         "media_url": data.media_url,
         "caption": data.caption,
+        "video_duration": data.video_duration,
         "likes": [],
         "comment_count": 0,
+        "status": "pending",  # admin must approve before points are awarded + post shows on Spotlight
         "created_at": iso(now_utc()),
     }
     await db.media_posts.insert_one(p)
-    await add_points(user["user_id"], 3, "Shared media post")
+    # Notify admins
+    admins = await db.users.find({"role": "admin"}, {"user_id": 1, "_id": 0}).to_list(20)
+    for a in admins:
+        await push_notification(
+            a["user_id"],
+            "New Spotlight post pending",
+            f"{user['name']} submitted a {data.media_type} for review.",
+            "spotlight",
+            "/admin",
+        )
     p.pop("_id", None)
-    return p
+    return {**p, "message": "Submitted for admin review. You'll earn points once it's approved."}
+
+@api.post("/feed/posts/{post_id}/approve")
+async def approve_post(post_id: str, user: dict = Depends(require_admin)):
+    p = await db.media_posts.find_one({"post_id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    if p.get("status") == "approved":
+        return {"ok": True, "already": True}
+    reward = POINTS_PER_VIDEO if p["media_type"] == "video" else POINTS_PER_PHOTO
+    await db.media_posts.update_one({"post_id": post_id}, {"$set": {
+        "status": "approved",
+        "approved_at": iso(now_utc()),
+        "approved_by": user["user_id"],
+    }})
+    await add_points(p["author_id"], reward, f"Spotlight {p['media_type']} approved")
+    await push_notification(
+        p["author_id"],
+        "Spotlight post approved!",
+        f"Your {p['media_type']} earned +{reward} point{'s' if reward != 1 else ''} (synced to rintaki.org).",
+        "spotlight",
+        "/feed",
+    )
+    return {"ok": True, "reward": reward}
+
+@api.post("/feed/posts/{post_id}/reject")
+async def reject_post(post_id: str, user: dict = Depends(require_admin)):
+    p = await db.media_posts.find_one({"post_id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    await db.media_posts.update_one({"post_id": post_id}, {"$set": {"status": "rejected", "reviewed_at": iso(now_utc())}})
+    await push_notification(
+        p["author_id"],
+        "Spotlight post not approved",
+        "Your submission wasn't approved this time. Feel free to post another!",
+        "spotlight",
+        "/feed",
+    )
+    return {"ok": True}
+
+@api.delete("/feed/posts/{post_id}")
+async def delete_post(post_id: str, user: dict = Depends(get_current_user)):
+    p = await db.media_posts.find_one({"post_id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    if user.get("role") != "admin" and p.get("author_id") != user["user_id"]:
+        raise HTTPException(403, "Forbidden")
+    await db.media_posts.delete_one({"post_id": post_id})
+    await db.post_comments.delete_many({"post_id": post_id})
+    return {"ok": True}
 
 @api.post("/feed/posts/{post_id}/like")
 async def like_post(post_id: str, user: dict = Depends(get_current_user)):

@@ -32,7 +32,7 @@ import TCGTradeIn from "@/pages/TCGTradeIn";
 import TCGTrade from "@/pages/TCGTrade";
 import Dashboard from "@/pages/Dashboard";
 import DashboardProfile from "@/pages/DashboardProfile";
-import { PointsGuide, LibraryGuide } from "@/pages/Guides";
+import { PointsGuide, LibraryGuide, AnimeCashGuide } from "@/pages/Guides";
 import { Trips, Giveaways, Contests, SubmitArticle, MembersShop, MembersDiscord } from "@/pages/DashboardSubs";
 import Join from "@/pages/Join";
 import Shop from "@/pages/Shop";
@@ -120,6 +120,7 @@ function RouterShell() {
       <Route path="/dashboard" element={<Protected><MemberOnly><Dashboard /></MemberOnly></Protected>} />
       <Route path="/dashboard/profile" element={<Protected><MemberOnly><DashboardProfile /></MemberOnly></Protected>} />
       <Route path="/dashboard/points-guide" element={<Protected><MemberOnly><PointsGuide /></MemberOnly></Protected>} />
+      <Route path="/dashboard/anime-cash-guide" element={<Protected><MemberOnly><AnimeCashGuide /></MemberOnly></Protected>} />
       <Route path="/dashboard/library-guide" element={<Protected><MemberOnly><LibraryGuide /></MemberOnly></Protected>} />
       <Route path="/dashboard/trips" element={<Protected><MemberOnly><Trips /></MemberOnly></Protected>} />
       <Route path="/dashboard/shop" element={<Protected><MemberOnly><MembersShop /></MemberOnly></Protected>} />

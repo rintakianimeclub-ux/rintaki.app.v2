@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Input } from "@/components/ui-brutal";
-import { ArrowLeft, CheckCircle, Plus, X, ArrowsClockwise } from "@phosphor-icons/react";
+import { ArrowLeft, CheckCircle, Plus, X, ArrowsClockwise, Trash } from "@phosphor-icons/react";
 
 export default function TCGCollection() {
   const { id } = useParams();
@@ -104,28 +104,49 @@ export default function TCGCollection() {
       )}
       {resyncMsg && <div className={`text-sm font-bold ${resyncMsg.startsWith("✓") ? "text-green-700" : "text-[var(--primary)]"}`}>{resyncMsg}</div>}
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-3">
         {visible.map((c) => {
           const has = owned.has(c.card_id);
           return (
-            <button key={c.card_id} onClick={() => toggle(c)} data-testid={`card-${c.card_id}`}
-                    className={`relative brutal rounded-lg overflow-hidden bg-white text-left transition ${has ? "" : "opacity-35 grayscale"}`}>
-              <div className="aspect-[2/3] bg-[var(--muted)]">
-                <img src={c.image_url} alt={c.name} className="w-full h-full object-cover" />
-              </div>
-              <div className="p-1.5">
-                <div className="font-black text-[11px] truncate">{c.name}</div>
-                <div className="text-[9px] uppercase tracking-widest text-[var(--muted-fg)]">#{c.number} · {c.rarity}</div>
-              </div>
-              {has && (
-                <div className="absolute top-1 right-1 w-6 h-6 bg-[var(--primary)] text-white rounded-full flex items-center justify-center border-2 border-black">
-                  <CheckCircle size={14} weight="fill" />
+            <div key={c.card_id} className="relative" data-testid={`card-wrap-${c.card_id}`}>
+              <button onClick={() => toggle(c)} data-testid={`card-${c.card_id}`}
+                      className={`relative block w-full brutal rounded-lg overflow-hidden bg-white text-left transition ${has ? "" : "opacity-35 grayscale"}`}>
+                <div className="aspect-[2/3] bg-[var(--muted)]">
+                  <img src={c.image_url} alt={c.name} className="w-full h-full object-cover" />
                 </div>
+                <div className="p-2">
+                  <div className="font-black text-sm truncate">{c.name}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[var(--muted-fg)]">#{c.number} · {c.rarity}</div>
+                </div>
+                {has && (
+                  <div className="absolute top-1.5 right-1.5 w-7 h-7 bg-[var(--primary)] text-white rounded-full flex items-center justify-center border-2 border-black">
+                    <CheckCircle size={15} weight="fill" />
+                  </div>
+                )}
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={async (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    if (!window.confirm(`Delete card "${c.name}"? This cannot be undone.`)) return;
+                    try {
+                      await api.delete(`/tcg/cards/${c.card_id}`);
+                      load();
+                    } catch (err) {
+                      alert(err.response?.data?.detail || "Delete failed");
+                    }
+                  }}
+                  data-testid={`del-card-${c.card_id}`}
+                  className="absolute bottom-1.5 right-1.5 w-7 h-7 bg-white border-2 border-black rounded-full flex items-center justify-center shadow-[2px_2px_0_#111]"
+                  title="Delete card"
+                >
+                  <Trash size={11} weight="bold" />
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
-        {visible.length === 0 && <div className="col-span-3 text-center text-sm text-[var(--muted-fg)] py-6">No cards to show.</div>}
+        {visible.length === 0 && <div className="col-span-2 text-center text-sm text-[var(--muted-fg)] py-6">No cards to show.</div>}
       </div>
 
       {addOpen && (

@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Button, Sticker, EmptyState, Input, Textarea } from "@/components/ui-brutal";
 import TradingCardGuide from "@/components/TradingCardGuide";
-import { CreditCard, Trophy, ArrowsLeftRight, PaperPlaneTilt, Plus, CaretRight, Cards, X, DownloadSimple, Spinner } from "@phosphor-icons/react";
+import { CreditCard, Trophy, ArrowsLeftRight, PaperPlaneTilt, Plus, CaretRight, Cards, X, DownloadSimple, Spinner, Trash } from "@phosphor-icons/react";
 
 export default function TCGHome() {
   const { user } = useAuth();
@@ -79,17 +79,38 @@ export default function TCGHome() {
         ) : (
           <div className="space-y-3">
             {collections.map((c) => (
-              <Link key={c.collection_id} to={`/tcg/collections/${c.collection_id}`} data-testid={`col-${c.collection_id}`}>
-                <Card className="p-3 flex items-center gap-3">
-                  {c.cover_image && <img src={c.cover_image} alt="" className="w-16 h-16 rounded-lg border-2 border-black object-cover" />}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black">{c.name}</div>
-                    <div className="text-xs text-[var(--muted-fg)] line-clamp-2">{c.description}</div>
-                    {c.source_url && <div className="text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest mt-0.5">↻ Synced</div>}
-                  </div>
-                  <CaretRight size={18} weight="bold" />
-                </Card>
-              </Link>
+              <div key={c.collection_id} className="relative" data-testid={`col-${c.collection_id}`}>
+                <Link to={`/tcg/collections/${c.collection_id}`}>
+                  <Card className="p-3 flex items-center gap-3">
+                    {c.cover_image && <img src={c.cover_image} alt="" className="w-16 h-16 rounded-lg border-2 border-black object-cover" />}
+                    <div className="flex-1 min-w-0 pr-8">
+                      <div className="font-black">{c.name}</div>
+                      <div className="text-xs text-[var(--muted-fg)] line-clamp-2">{c.description}</div>
+                      {c.source_url && <div className="text-[10px] text-[var(--primary)] font-bold uppercase tracking-widest mt-0.5">↻ Synced</div>}
+                    </div>
+                    <CaretRight size={18} weight="bold" />
+                  </Card>
+                </Link>
+                {isAdmin && (
+                  <button
+                    onClick={async (e) => {
+                      e.preventDefault(); e.stopPropagation();
+                      if (!window.confirm(`Delete the "${c.name}" collection and all its cards? This cannot be undone.`)) return;
+                      try {
+                        await api.delete(`/tcg/collections/${c.collection_id}`);
+                        load();
+                      } catch (err) {
+                        alert(err.response?.data?.detail || "Delete failed");
+                      }
+                    }}
+                    data-testid={`del-col-${c.collection_id}`}
+                    className="absolute top-2 right-10 w-8 h-8 bg-white border-2 border-black rounded-full flex items-center justify-center shadow-[2px_2px_0_#111]"
+                    title="Delete collection"
+                  >
+                    <Trash size={12} weight="bold" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

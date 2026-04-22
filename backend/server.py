@@ -2010,6 +2010,33 @@ async def toggle_card(card_id: str, user: dict = Depends(get_current_user)):
     })
     return {"owned": True}
 
+@api.delete("/tcg/cards/{card_id}")
+async def delete_card(card_id: str, user: dict = Depends(require_admin)):
+    """Admin: delete a single card and all user ownership records for it."""
+    card = await db.tcg_cards.find_one({"card_id": card_id})
+    if not card:
+        raise HTTPException(404, "Card not found")
+    await db.tcg_cards.delete_one({"card_id": card_id})
+    await db.tcg_user_cards.delete_many({"card_id": card_id})
+    return {"ok": True}
+
+@api.delete("/tcg/collections/{collection_id}")
+async def delete_collection(collection_id: str, user: dict = Depends(require_admin)):
+    """Admin: delete a collection, all its cards, and all user ownership records for them."""
+    col = await db.tcg_collections.find_one({"collection_id": collection_id})
+    if not col:
+        raise HTTPException(404, "Collection not found")
+    # Get card IDs so we can clean up ownership
+    cards = await db.tcg_cards.find({"collection_id": collection_id}, {"card_id": 1, "_id": 0}).to_list(10000)
+    card_ids = [c["card_id"] for c in cards]
+    await db.tcg_cards.delete_many({"collection_id": collection_id})
+    if card_ids:
+        await db.tcg_user_cards.delete_many({"card_id": {"$in": card_ids}})
+    await db.tcg_user_cards.delete_many({"collection_id": collection_id})
+    await db.tcg_collections.delete_one({"collection_id": collection_id})
+    return {"ok": True, "cards_deleted": len(card_ids)}
+
+
 @api.get("/tcg/my-collection")
 async def my_collection(user: dict = Depends(get_current_user)):
     owned = await db.tcg_user_cards.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(5000)

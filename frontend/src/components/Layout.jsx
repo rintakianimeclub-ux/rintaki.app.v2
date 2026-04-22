@@ -17,7 +17,7 @@ const TABS = [
   { to: "/", label: "Home", icon: HouseSimple },
   { to: "/forums", label: "Forum", icon: ChatsCircle },
   { to: "/tcg", label: "Cards", icon: CreditCard },
-  { to: "/feed", label: "Feed", icon: Images },
+  { to: "/feed", label: "Spotlight", icon: Images },
   { to: "/more", label: "More", icon: ListIcon },
 ];
 

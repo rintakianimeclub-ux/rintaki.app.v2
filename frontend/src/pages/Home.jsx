@@ -95,7 +95,7 @@ export default function Home() {
       <div className="grid grid-cols-4 gap-2">
         <QuickTile to="/events" icon={Calendar} label="Events" />
         <QuickTile to="/magazines" icon={BookOpen} label="Mag" />
-        <QuickTile to="/feed" icon={Images} label="Feed" />
+        <QuickTile to="/feed" icon={Images} label="Spotlight" />
         <QuickTile to="/dashboard" icon={Gift} label="Members" />
       </div>
 
@@ -176,7 +176,7 @@ export default function Home() {
       {/* Media peek */}
       {posts.length > 0 && (
         <section>
-          <SectionHeader title="Feed" icon={Images} cta={{ to: "/feed", label: "See more" }} />
+          <SectionHeader title="Spotlight" icon={Images} cta={{ to: "/feed", label: "See more" }} />
           <div className="grid grid-cols-3 gap-1">
             {posts.slice(0, 6).map((p) => (
               <Link key={p.post_id} to="/feed" className="aspect-square border-2 border-black rounded-lg overflow-hidden bg-black" data-testid={`home-post-${p.post_id}`}>

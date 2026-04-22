@@ -57,7 +57,7 @@ export default function Feed() {
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-2">
         <div>
-          <h1 className="font-black text-3xl">Feed</h1>
+          <h1 className="font-black text-3xl">Spotlight</h1>
           <p className="text-[var(--muted-fg)] text-sm">Member photos & videos. +3 pts per post.</p>
         </div>
         <Button onClick={() => setOpen(true)} data-testid="new-post-btn">

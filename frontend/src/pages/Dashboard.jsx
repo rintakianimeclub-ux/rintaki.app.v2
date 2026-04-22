@@ -4,19 +4,20 @@ import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker } from "@/components/ui-brutal";
 import {
   UserCircle, Trophy, Buildings, Airplane, ShoppingBag, DiscordLogo,
-  Gift, Confetti, Article, ShieldStar, CaretRight, CurrencyCircleDollar, HouseLine,
+  Gift, Confetti, Article, ShieldStar, CaretRight, CurrencyCircleDollar, HouseLine, CreditCard,
 } from "@phosphor-icons/react";
 
 const TILES = [
-  { to: "/dashboard/profile", label: "Profile", icon: UserCircle, color: "bg-[var(--primary)] text-white", desc: "Extended member info" },
+  { to: "/dashboard/profile", label: "Profile", icon: UserCircle, color: "bg-[var(--primary)] text-white", desc: "From your rintaki.org account" },
+  { to: "/dashboard/trips", label: "Trips & conventions", icon: Airplane, color: "bg-[var(--accent)]", desc: "Members-only travel" },
   { to: "/dashboard/points-guide", label: "Points guide", icon: Trophy, color: "bg-[var(--secondary)]", desc: "How to earn & spend" },
   { to: "/dashboard/library-guide", label: "Library guide", icon: Buildings, color: "bg-white", desc: "Borrow & return rules" },
-  { to: "/dashboard/trips", label: "Trips & conventions", icon: Airplane, color: "bg-[var(--accent)]", desc: "Members-only travel" },
-  { to: "/dashboard/shop", label: "Members shop", icon: ShoppingBag, color: "bg-white", desc: "Use points + anime cash" },
-  { to: "/dashboard/discord", label: "Members Discord", icon: DiscordLogo, color: "bg-[#5865F2] text-white", desc: "Private server" },
-  { to: "/dashboard/giveaways", label: "Giveaways", icon: Gift, color: "bg-[var(--primary)] text-white", desc: "Monthly prizes" },
+  { to: "/dashboard/giveaways?type=anime_item", label: "Anime Give Away", icon: Gift, color: "bg-[var(--primary)] text-white", desc: "Monthly anime prizes" },
+  { to: "/dashboard/giveaways?type=gift_card", label: "Gift Card Give Away", icon: Gift, color: "bg-[var(--accent)]", desc: "Monthly gift cards" },
+  { to: "/dashboard/catalog", label: "Catalog", icon: CreditCard, color: "bg-white", desc: "Members-only products" },
   { to: "/dashboard/contests", label: "Contests", icon: Confetti, color: "bg-[var(--secondary)]", desc: "Members-only" },
-  { to: "/dashboard/submit-article", label: "Submit article", icon: Article, color: "bg-white", desc: "Blog / magazine" },
+  { to: "/dashboard/discord", label: "Discord", icon: DiscordLogo, color: "bg-[#5865F2] text-white", desc: "Private server" },
+  { to: "/dashboard/submit-article", label: "Article Submission", icon: Article, color: "bg-white", desc: "Blog / magazine" },
 ];
 
 export default function Dashboard() {

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Input, Textarea, EmptyState } from "@/components/ui-brutal";
-import { ArrowLeft, Plus, X, Gift, Confetti, Airplane, Article, ShoppingBag, DiscordLogo } from "@phosphor-icons/react";
+import { ArrowLeft, Plus, X, Gift, Confetti, Airplane, Article, CreditCard, DiscordLogo, ShoppingCart, ArrowSquareOut } from "@phosphor-icons/react";
 
 export function Trips() {
   const { user } = useAuth();
@@ -76,37 +76,44 @@ export function Trips() {
 export function Giveaways() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const [params] = useSearchParams();
+  const typeFilter = params.get("type"); // "anime_item" | "gift_card" | null
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", prize_type: "anime_item", ends_at: "", cover_image: "" });
+  const [form, setForm] = useState({ title: "", description: "", prize_type: typeFilter || "anime_item", ends_at: "", cover_image: "" });
 
   const load = async () => { const { data } = await api.get("/giveaways"); setItems(data.giveaways || []); };
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (typeFilter) setForm((f) => ({ ...f, prize_type: typeFilter })); }, [typeFilter]);
 
   const submit = async (e) => {
     e.preventDefault();
     await api.post("/giveaways", { ...form, ends_at: new Date(form.ends_at).toISOString() });
     setOpen(false);
-    setForm({ title: "", description: "", prize_type: "anime_item", ends_at: "", cover_image: "" });
+    setForm({ title: "", description: "", prize_type: typeFilter || "anime_item", ends_at: "", cover_image: "" });
     load();
   };
 
   const enter = async (id) => { await api.post(`/giveaways/${id}/enter`); load(); };
+
+  const filtered = typeFilter ? items.filter((g) => g.prize_type === typeFilter) : items;
+  const pageTitle = typeFilter === "gift_card" ? "Gift Card Give Away" : typeFilter === "anime_item" ? "Anime Give Away" : "Giveaways";
+  const pageDesc = typeFilter === "gift_card" ? "Monthly gift card drawings." : typeFilter === "anime_item" ? "Monthly anime prizes." : "Monthly prizes for members.";
 
   return (
     <div className="space-y-5">
       <Link to="/dashboard" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-widest"><ArrowLeft size={14} weight="bold" /> Back</Link>
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="font-black text-3xl flex items-center gap-2"><Gift size={26} weight="fill" className="text-[var(--primary)]" /> Giveaways</h1>
-          <p className="text-[var(--muted-fg)] text-sm">Monthly prizes for members.</p>
+          <h1 className="font-black text-3xl flex items-center gap-2"><Gift size={26} weight="fill" className="text-[var(--primary)]" /> {pageTitle}</h1>
+          <p className="text-[var(--muted-fg)] text-sm">{pageDesc}</p>
         </div>
         {isAdmin && <Button onClick={() => setOpen(true)} data-testid="new-giveaway-btn"><Plus size={14} weight="bold" /></Button>}
       </div>
 
-      {items.length === 0 ? <EmptyState title="No giveaways yet" icon={Gift} /> : (
+      {filtered.length === 0 ? <EmptyState title={`No ${pageTitle.toLowerCase()} yet`} icon={Gift} /> : (
         <div className="space-y-3">
-          {items.map((g) => (
+          {filtered.map((g) => (
             <Card key={g.giveaway_id} className="p-0 overflow-hidden" data-testid={`giveaway-${g.giveaway_id}`}>
               {g.cover_image && <div className="aspect-[16/9] border-b-2 border-black"><img src={g.cover_image} className="w-full h-full object-cover" alt="" /></div>}
               <div className="p-4">
@@ -276,19 +283,91 @@ export function SubmitArticle() {
 }
 
 export function MembersShop() {
+  // Keep the export name `MembersShop` so the import in App.js still works,
+  // but present it as the members-only "Catalog" (products tagged `members` on WooCommerce).
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [info, setInfo] = useState(null);
+  const [detail, setDetail] = useState(null);
+
+  useEffect(() => {
+    api.get("/shop/members-catalog")
+      .then(({ data }) => {
+        setProducts(data.products || []);
+        setInfo({ source: data.source, admin_hint: data.admin_hint });
+      })
+      .catch(() => setProducts([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const decode = (s = "") => { const d = document.createElement("textarea"); d.innerHTML = s; return d.value; };
+  const strip = (s = "") => { const d = document.createElement("div"); d.innerHTML = s; return (d.textContent || "").replace(/\s+/g, " ").trim(); };
+
   return (
     <div className="space-y-5">
       <Link to="/dashboard" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-widest"><ArrowLeft size={14} weight="bold" /> Back</Link>
       <div>
-        <h1 className="font-black text-3xl flex items-center gap-2"><ShoppingBag size={26} weight="fill" className="text-[var(--primary)]" /> Members shop</h1>
-        <p className="text-[var(--muted-fg)] text-sm">Spend points & anime cash on members-exclusive items.</p>
+        <h1 className="font-black text-3xl flex items-center gap-2"><CreditCard size={26} weight="fill" className="text-[var(--primary)]" /> Catalog</h1>
+        <p className="text-[var(--muted-fg)] text-sm">Members-only products from rintaki.org.</p>
       </div>
-      <Card>
-        <p className="text-sm">Our members shop runs on WooCommerce at rintaki.org. Click below to browse and use your points + anime cash at checkout.</p>
-        <a href="https://www.rintaki.org/shop" target="_blank" rel="noreferrer" className="block mt-3" data-testid="shop-open">
-          <Button className="w-full">Open members shop</Button>
-        </a>
-      </Card>
+
+      {loading ? (
+        <div className="text-sm text-[var(--muted-fg)]">Loading…</div>
+      ) : products.length === 0 ? (
+        <Card className="text-center space-y-2">
+          <EmptyState title="No members products yet" body="This catalog shows products tagged 'members' on rintaki.org." icon={CreditCard} />
+          {info?.admin_hint && (
+            <div className="bg-[var(--secondary)] border-2 border-black rounded-lg px-3 py-2 text-xs text-left font-bold" data-testid="catalog-admin-hint">
+              ⚙️ Admin: {info.admin_hint}
+            </div>
+          )}
+        </Card>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {products.map((p) => (
+            <button key={p.id} onClick={() => setDetail(p)} data-testid={`catalog-product-${p.id}`} className="text-left">
+              <Card className="p-0 overflow-hidden h-full flex flex-col">
+                <div className="aspect-square border-b-2 border-black bg-black overflow-hidden">
+                  {p.image && <img src={p.image} alt="" className="w-full h-full object-cover" loading="lazy" />}
+                </div>
+                <div className="p-2">
+                  <h3 className="font-black text-sm leading-tight line-clamp-2">{decode(p.name)}</h3>
+                  <div className="font-black text-lg mt-1">{p.price}</div>
+                </div>
+              </Card>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center" onClick={() => setDetail(null)}>
+          <div onClick={(e) => e.stopPropagation()}
+               className="bg-white border-2 border-black rounded-t-2xl sm:rounded-2xl w-full max-w-md shadow-[6px_6px_0_#111] max-h-[92vh] flex flex-col" data-testid="catalog-detail">
+            <div className="flex items-center justify-between p-3 border-b-2 border-black sticky top-0 bg-white z-10">
+              <div className="font-black text-sm uppercase tracking-widest line-clamp-1">{decode(detail.name)}</div>
+              <button onClick={() => setDetail(null)} className="w-8 h-8 border-2 border-black rounded-full flex items-center justify-center">
+                <X size={14} weight="bold" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {detail.image && <div className="aspect-square bg-black border-b-2 border-black overflow-hidden"><img src={detail.image} alt="" className="w-full h-full object-contain" /></div>}
+              <div className="p-4 space-y-3">
+                <h2 className="font-black text-xl">{decode(detail.name)}</h2>
+                <div className="font-black text-2xl">{detail.price}</div>
+                {detail.short_description && <p className="text-sm">{strip(detail.short_description)}</p>}
+                {detail.description && <div className="text-sm text-[var(--muted-fg)]" dangerouslySetInnerHTML={{ __html: detail.description }} />}
+              </div>
+            </div>
+            <div className="p-3 border-t-2 border-black bg-white">
+              <a href={detail.add_to_cart_url} target="_blank" rel="noreferrer">
+                <Button className="w-full"><ShoppingCart size={16} weight="fill" /> Add to cart — {detail.price} <ArrowSquareOut size={12} weight="bold" /></Button>
+              </a>
+              <p className="text-[10px] text-center text-[var(--muted-fg)] font-bold uppercase tracking-widest mt-2">Secure checkout on rintaki.org</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

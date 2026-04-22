@@ -123,6 +123,7 @@ function RouterShell() {
       <Route path="/dashboard/library-guide" element={<Protected><MemberOnly><LibraryGuide /></MemberOnly></Protected>} />
       <Route path="/dashboard/trips" element={<Protected><MemberOnly><Trips /></MemberOnly></Protected>} />
       <Route path="/dashboard/shop" element={<Protected><MemberOnly><MembersShop /></MemberOnly></Protected>} />
+      <Route path="/dashboard/catalog" element={<Protected><MemberOnly><MembersShop /></MemberOnly></Protected>} />
       <Route path="/dashboard/discord" element={<Protected><MemberOnly><MembersDiscord /></MemberOnly></Protected>} />
       <Route path="/dashboard/giveaways" element={<Protected><MemberOnly><Giveaways /></MemberOnly></Protected>} />
       <Route path="/dashboard/contests" element={<Protected><MemberOnly><Contests /></MemberOnly></Protected>} />

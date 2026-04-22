@@ -1634,6 +1634,81 @@ async def shop_product_detail(product_id: int, refresh: bool = False):
     except Exception as e:
         raise HTTPException(404, f"Product not found: {e}")
 
+async def _resolve_tag_id(slug: str) -> Optional[int]:
+    """Resolve a WooCommerce product tag slug (e.g. 'members') to its numeric ID."""
+    cache_key = f"tag_id:{slug}"
+    now_ts = _time.time()
+    if cache_key in _wc_cache:
+        ts, data = _wc_cache[cache_key]
+        if now_ts - ts < WC_TTL:
+            return data
+    try:
+        raw = await _wc_fetch("/products/tags", params={"per_page": 100})
+        tag_id = None
+        for t in raw:
+            if (t.get("slug") or "").lower() == slug.lower():
+                tag_id = t.get("id")
+                break
+        _wc_cache[cache_key] = (now_ts, tag_id)
+        return tag_id
+    except Exception as e:
+        logger.warning(f"_resolve_tag_id failed: {e}")
+        return None
+
+@api.get("/shop/members-catalog")
+async def shop_members_catalog(page: int = 1, per_page: int = 20, search: str = "", user: dict = Depends(require_member)):
+    """Products tagged 'members' on WooCommerce — visible only to paid members + admins."""
+    per_page = max(1, min(per_page, 50))
+    tag_id = await _resolve_tag_id("members")
+    if not tag_id:
+        return {
+            "products": [], "page": page, "per_page": per_page,
+            "source": "no-tag",
+            "admin_hint": "No WooCommerce tag with slug 'members' was found. Create one at rintaki.org → WooCommerce → Products → Tags, then add it to members-only products.",
+        }
+    cache_key = f"members-catalog:{page}:{per_page}:{search}"
+    now_ts = _time.time()
+    if cache_key in _wc_cache:
+        ts, data = _wc_cache[cache_key]
+        if now_ts - ts < WC_TTL:
+            return {**data, "source": "cache"}
+    params = {"page": page, "per_page": per_page, "tag": tag_id}
+    if search:
+        params["search"] = search
+    try:
+        raw = await _wc_fetch("/products", params=params)
+        products = [_wc_simplify_product(p) for p in raw]
+        data = {"products": products, "page": page, "per_page": per_page, "tag_id": tag_id}
+        _wc_cache[cache_key] = (now_ts, data)
+        return {**data, "source": "live"}
+    except Exception as e:
+        raise HTTPException(502, f"Could not fetch catalog: {e}")
+
+@api.get("/profile/wordpress")
+async def get_wp_profile(user: dict = Depends(get_current_user)):
+    """Fetch the WordPress user profile (PMPro billing fields) for the logged-in user."""
+    base = os.environ.get("RINTAKI_WP_BASE_URL")
+    key = os.environ.get("RINTAKI_WP_KEY")
+    if not base or not key:
+        return {"found": False, "wp_configured": False}
+    try:
+        async with httpx.AsyncClient(timeout=8) as hc:
+            r = await hc.get(
+                f"{base.rstrip('/')}/wp-json/rintaki/v1/profile",
+                params={"email": user.get("email", "")},
+                headers={"X-Rintaki-Key": key},
+            )
+            if r.status_code == 404:
+                # Old plugin version (v1.0 / v1.1) — doesn't have /profile yet
+                return {"found": False, "wp_configured": True, "plugin_outdated": True}
+            if r.status_code != 200:
+                return {"found": False, "wp_configured": True, "error": f"WP returned {r.status_code}"}
+            return r.json()
+    except Exception as e:
+        logger.warning(f"get_wp_profile failed: {e}")
+        return {"found": False, "wp_configured": True, "error": str(e)}
+
+
 # ----------------- Media Feed (Instagram-style) -----------------
 class MediaPostCreate(BaseModel):
     media_type: str  # "image" or "video"

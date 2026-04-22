@@ -133,13 +133,13 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Quick tiles — public */}
-      <div className="grid grid-cols-5 gap-1.5">
+      {/* Quick tiles — 5 for non-members (includes Shop), 4 for members */}
+      <div className={`grid ${isMember ? "grid-cols-4 gap-2" : "grid-cols-5 gap-1.5"}`}>
         <QuickTile to="/events" icon={Calendar} label="Events" />
         <QuickTile to="/magazines" icon={BookOpen} label="Mag" />
         <QuickTile to="/library" icon={Buildings} label="Library" />
         <QuickTile to="/events-gallery" icon={FilmSlate} label="Gallery" />
-        <QuickTile to="/shop" icon={ShoppingBag} label="Shop" />
+        {!isMember && <QuickTile to="/shop" icon={ShoppingBag} label="Shop" />}
       </div>
 
       {/* Latest rintaki articles */}
@@ -222,9 +222,9 @@ export default function Home() {
 function QuickTile({ to, icon: Icon, label }) {
   return (
     <Link to={to} data-testid={`quick-${label.toLowerCase()}`}>
-      <Card className="p-2 text-center">
+      <Card className="p-2.5 text-center">
         <Icon size={18} weight="fill" className="mx-auto" />
-        <div className="text-[9px] font-black uppercase tracking-widest mt-1 leading-tight">{label}</div>
+        <div className="text-[10px] font-black uppercase tracking-widest mt-1 leading-tight">{label}</div>
       </Card>
     </Link>
   );

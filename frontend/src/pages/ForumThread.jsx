@@ -1,19 +1,27 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { Card, Sticker, Button, Avatar, EmptyState } from "@/components/ui-brutal";
-import { ArrowLeft, ArrowSquareOut, ArrowsClockwise, ChatCircleDots } from "@phosphor-icons/react";
+import { useAuth } from "@/context/AuthContext";
+import { Card, Sticker, Button, Avatar, EmptyState, Textarea } from "@/components/ui-brutal";
+import { ArrowLeft, ArrowSquareOut, ArrowsClockwise, ChatCircleDots, PaperPlaneTilt, Lock } from "@phosphor-icons/react";
 
 export default function ForumThread() {
   const { id } = useParams(); // treated as Asgaros slug (can be forum OR topic)
+  const { user } = useAuth();
+  const isMember = !!user && (user.role === "admin" || user.is_member);
   const [forum, setForum] = useState(null);
   const [topic, setTopic] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
+  // reply form state (only used when viewing a topic)
+  const [reply, setReply] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [replyErr, setReplyErr] = useState("");
+  const [replySuccess, setReplySuccess] = useState(false);
+
   const load = async () => {
     setLoading(true); setNotFound(false);
-    // Try as forum first; if 404, try as topic
     try {
       const { data } = await api.get(`/forums/asgaros/forum/${id}`);
       setForum(data); setTopic(null);
@@ -21,7 +29,7 @@ export default function ForumThread() {
       return;
     } catch { /* try topic */ }
     try {
-      const { data } = await api.get(`/forums/asgaros/topic/${id}`);
+      const { data } = await api.get(`/forums/asgaros/topic/${id}`, { params: { refresh: replySuccess ? 1 : 0 } });
       setTopic(data); setForum(null);
     } catch {
       setNotFound(true);
@@ -30,6 +38,27 @@ export default function ForumThread() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  const submitReply = async (e) => {
+    e.preventDefault();
+    if (!reply.trim()) return;
+    setPosting(true); setReplyErr(""); setReplySuccess(false);
+    try {
+      await api.post(`/forums/asgaros/topic/${id}/reply`, { text: reply });
+      setReply("");
+      setReplySuccess(true);
+      setTimeout(() => setReplySuccess(false), 4000);
+      // Refresh from source to show the new post
+      try {
+        const { data } = await api.get(`/forums/asgaros/topic/${id}`, { params: { refresh: 1 } });
+        setTopic(data);
+      } catch { /* noop */ }
+    } catch (err) {
+      setReplyErr(err.response?.data?.detail || "Reply failed");
+    } finally {
+      setPosting(false);
+    }
+  };
 
   if (loading) return <div className="text-sm text-[var(--muted-fg)] p-6">Loading…</div>;
 
@@ -106,14 +135,48 @@ export default function ForumThread() {
         ))}
       </div>
 
-      <Card className="bg-[var(--secondary)] text-center">
-        <p className="text-xs font-bold">
-          To reply, head to <a href={t.url} target="_blank" rel="noreferrer" className="underline">rintaki.org</a> and post there — replies sync back here within 5 minutes.
-        </p>
-        <a href={t.url} target="_blank" rel="noreferrer" className="block mt-2">
-          <Button className="w-full">Reply on rintaki.org <ArrowSquareOut size={12} weight="bold" /></Button>
-        </a>
-      </Card>
+      {/* Member reply form */}
+      {isMember ? (
+        <form onSubmit={submitReply} className="space-y-2" data-testid="reply-form">
+          <label className="text-[10px] font-black uppercase tracking-widest">Reply · +2 pts</label>
+          <Textarea rows={4} value={reply} onChange={(e) => setReply(e.target.value)}
+                    placeholder={`Reply as ${user.name?.split(" ")[0] || "you"}…`}
+                    data-testid="reply-body" required />
+          {replyErr && (
+            <div className="bg-[var(--primary)] text-white border-2 border-black rounded-lg px-3 py-2 text-xs font-bold" data-testid="reply-err">
+              {replyErr}
+            </div>
+          )}
+          {replySuccess && (
+            <div className="bg-[var(--secondary)] border-2 border-black rounded-lg px-3 py-2 text-xs font-bold" data-testid="reply-success">
+              ✓ Posted to rintaki.org! It may take a few seconds to appear above.
+            </div>
+          )}
+          <Button type="submit" disabled={posting || !reply.trim()} className="w-full" data-testid="reply-submit">
+            {posting ? "Posting…" : <><PaperPlaneTilt size={14} weight="fill" /> Post reply</>}
+          </Button>
+          <p className="text-[10px] text-center text-[var(--muted-fg)] font-bold uppercase tracking-widest">
+            Your reply posts directly to rintaki.org as {user.email}
+          </p>
+        </form>
+      ) : user ? (
+        <Card className="bg-[var(--secondary)] text-center">
+          <p className="text-xs font-bold flex items-center justify-center gap-1">
+            <Lock size={14} weight="fill" /> Members can reply from the app
+          </p>
+          <Link to="/join" className="block mt-2" data-testid="reply-join-link">
+            <Button className="w-full">Become a member</Button>
+          </Link>
+        </Card>
+      ) : (
+        <Card className="bg-[var(--secondary)] text-center">
+          <p className="text-xs font-bold">Sign in to reply</p>
+          <Link to="/login" className="block mt-2" data-testid="reply-signin-link">
+            <Button className="w-full">Sign in</Button>
+          </Link>
+        </Card>
+      )}
     </div>
   );
 }
+

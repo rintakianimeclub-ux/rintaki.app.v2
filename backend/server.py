@@ -693,6 +693,52 @@ async def asgaros_topic_detail(slug: str, refresh: bool = False):
     _asg_cache[cache_key] = (now_ts, data)
     return {**data, "source": "live"}
 
+class AsgarosReplyIn(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)
+
+@api.post("/forums/asgaros/topic/{slug}/reply")
+async def asgaros_post_reply(slug: str, data: AsgarosReplyIn, user: dict = Depends(require_member)):
+    """Post a reply to an Asgaros topic via the WP plugin. Requires plugin v1.3.0+ on rintaki.org."""
+    base = os.environ.get("RINTAKI_WP_BASE_URL")
+    key = os.environ.get("RINTAKI_WP_KEY")
+    if not base or not key:
+        raise HTTPException(503, "WordPress sync is not configured on the server.")
+    try:
+        async with httpx.AsyncClient(timeout=10) as hc:
+            r = await hc.post(
+                f"{base.rstrip('/')}/wp-json/rintaki/v1/forum-reply",
+                headers={"X-Rintaki-Key": key, "Content-Type": "application/json"},
+                json={"email": user.get("email", ""), "topic_slug": slug, "text": data.text},
+            )
+    except Exception as e:
+        raise HTTPException(502, f"Could not reach rintaki.org: {e}")
+
+    if r.status_code == 404:
+        detail = ""
+        try:
+            detail = r.json().get("message", "") or r.text
+        except Exception:
+            detail = r.text
+        if "rest_no_route" in detail or "Endpoint not found" in detail:
+            raise HTTPException(502, "The rintaki.org sync plugin needs to be updated to v1.3.0 to accept replies. (See /app/wp-plugin/rintaki-app-sync.php)")
+        raise HTTPException(404, detail or "Topic or user not found on rintaki.org.")
+    if r.status_code != 200:
+        try:
+            msg = r.json().get("message", "") or r.text
+        except Exception:
+            msg = r.text
+        raise HTTPException(r.status_code, f"rintaki.org refused the reply: {msg}")
+
+    resp = r.json()
+    # Reward member +2 pts for a forum reply
+    try:
+        await add_points(user["user_id"], 2, "Replied to a forum topic")
+    except Exception as e:
+        logger.warning(f"Reply points failed: {e}")
+    # Invalidate the cached topic so a refresh shows the new post
+    _asg_cache.pop(f"topic:{slug}", None)
+    return resp
+
 # Keep the legacy /rintaki/forum endpoint (thin shim calling the new overview)
 @api.get("/rintaki/forum")
 async def rintaki_forum():

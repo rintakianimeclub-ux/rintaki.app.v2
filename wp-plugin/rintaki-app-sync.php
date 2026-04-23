@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Rintaki App Sync
  * Description: Exposes MyCred points, Anime Cash, and PMPro membership level to the Rintaki mobile app, and accepts adjustments. Secured with a shared secret.
- * Version:     1.2.0
+ * Version:     1.3.0
  * Author:      Rintaki Anime Club Society
  */
 
@@ -163,13 +163,103 @@ add_action('rest_api_init', function () {
         'methods'             => 'GET',
         'permission_callback' => 'rintaki_app_check_key',
         'callback'            => function () {
+            global $wpdb;
+            $topics_table = $wpdb->prefix . 'forum_topics';
+            $posts_table  = $wpdb->prefix . 'forum_posts';
+            $has_tables   = (
+                $wpdb->get_var("SHOW TABLES LIKE '$topics_table'") === $topics_table &&
+                $wpdb->get_var("SHOW TABLES LIKE '$posts_table'")  === $posts_table
+            );
             return [
                 'ok'            => true,
                 'mycred_active' => function_exists('mycred_get_users_balance'),
                 'pmpro_active'  => function_exists('pmpro_getMembershipLevelForUser'),
+                'asgaros_ready' => $has_tables,
                 'points_type'   => RINTAKI_POINTS_TYPE,
                 'cash_type'     => RINTAKI_CASH_TYPE,
             ];
+        },
+    ]);
+
+    // --- Asgaros Forum: resolve topic by slug ---
+    // Tries to find the topic_id that matches a URL slug like "trade-cards".
+    // Asgaros permalink slugs are built from sanitize_title($topic_name), so we match on that.
+    function rintaki_app_resolve_topic_id($slug) {
+        global $wpdb;
+        $topics = $wpdb->prefix . 'forum_topics';
+        if ($wpdb->get_var("SHOW TABLES LIKE '$topics'") !== $topics) return 0;
+        // Direct match on a `slug` column if the site's Asgaros version has one
+        $cols = $wpdb->get_col("DESC $topics", 0);
+        if (in_array('slug', $cols, true)) {
+            $tid = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM $topics WHERE slug = %s", $slug));
+            if ($tid) return $tid;
+        }
+        // Otherwise match sanitize_title(name)
+        $rows = $wpdb->get_results("SELECT id, name FROM $topics", ARRAY_A);
+        foreach ((array) $rows as $row) {
+            if (sanitize_title($row['name']) === $slug) return (int) $row['id'];
+        }
+        return 0;
+    }
+
+    // POST /wp-json/rintaki/v1/forum-reply
+    //   body: { email, topic_slug, text }
+    register_rest_route('rintaki/v1', '/forum-reply', [
+        'methods'             => 'POST',
+        'permission_callback' => 'rintaki_app_check_key',
+        'callback'            => function (WP_REST_Request $req) {
+            global $wpdb;
+            $email = sanitize_email((string) $req->get_param('email'));
+            $slug  = sanitize_title((string) $req->get_param('topic_slug'));
+            $text  = trim((string) $req->get_param('text'));
+
+            if (empty($email)) return new WP_Error('bad_request', 'email is required', ['status' => 400]);
+            if (empty($slug))  return new WP_Error('bad_request', 'topic_slug is required', ['status' => 400]);
+            if (empty($text) || strlen($text) > 20000) {
+                return new WP_Error('bad_request', 'text must be 1-20000 chars', ['status' => 400]);
+            }
+
+            $user = get_user_by('email', $email);
+            if (!$user) return new WP_Error('not_found', 'User not on WordPress. Sign up on rintaki.org with this email first.', ['status' => 404]);
+
+            $topic_id = rintaki_app_resolve_topic_id($slug);
+            if (!$topic_id) return new WP_Error('not_found', 'Topic not found', ['status' => 404]);
+
+            $posts_table = $wpdb->prefix . 'forum_posts';
+            if ($wpdb->get_var("SHOW TABLES LIKE '$posts_table'") !== $posts_table) {
+                return new WP_Error('no_forum', 'Asgaros Forum tables missing', ['status' => 500]);
+            }
+
+            // Allow simple HTML via WP's post kses (strips dangerous tags).
+            $clean_text = wp_kses_post($text);
+
+            $data = [
+                'text'      => $clean_text,
+                'parent_id' => $topic_id,
+                'date'      => current_time('mysql'),
+                'author_id' => (int) $user->ID,
+            ];
+            $formats = ['%s', '%d', '%s', '%d'];
+            $ok = $wpdb->insert($posts_table, $data, $formats);
+            if ($ok === false) {
+                return new WP_Error('insert_failed', 'Could not insert reply: ' . $wpdb->last_error, ['status' => 500]);
+            }
+            $post_id = (int) $wpdb->insert_id;
+
+            // Fire Asgaros hook so notifications, search index, etc. update.
+            if (has_action('asgarosforum_after_add_post')) {
+                do_action('asgarosforum_after_add_post', $post_id, $topic_id);
+            }
+
+            // Rebuild permalink
+            $link = home_url('/notice-board/topic/' . $slug . '/#postid-' . $post_id);
+
+            return new WP_REST_Response([
+                'ok'        => true,
+                'post_id'   => $post_id,
+                'topic_id'  => $topic_id,
+                'permalink' => $link,
+            ], 200);
         },
     ]);
 });

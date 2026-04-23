@@ -97,9 +97,9 @@ export default function Profile() {
   if (!profile) return <div className="text-sm text-[var(--muted-fg)]">Loading…</div>;
 
   const banner = profile.banner_image;
-  const fullName = wp?.first_name || wp?.last_name
-    ? `${wp.first_name || ""} ${wp.last_name || ""}`.trim()
-    : profile.name;
+  const fullName = wp?.display_name
+    || (wp?.first_name || wp?.last_name ? `${wp.first_name || ""} ${wp.last_name || ""}`.trim() : "")
+    || profile.name;
   const address = wp && [wp.address1, wp.address2, wp.city, wp.state, wp.zip, wp.country].filter(Boolean).join(", ");
 
   return (

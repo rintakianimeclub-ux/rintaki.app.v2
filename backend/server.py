@@ -66,8 +66,12 @@ def set_jwt_cookies(response: Response, user_id: str):
     response.set_cookie("refresh_token", refresh, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
 
 def clear_auth_cookies(response: Response):
+    # Browsers only honour delete_cookie when the attributes match the original set_cookie.
+    # Our cookies are set with secure=True, samesite="none" (required for this cross-site preview),
+    # so the delete must echo those exact attributes — otherwise the cookie is kept and the user
+    # stays logged in after clicking "Log out".
     for c in ("access_token", "refresh_token", "session_token"):
-        response.delete_cookie(c, path="/")
+        response.delete_cookie(c, path="/", secure=True, samesite="none")
 
 def public_user(u: dict) -> dict:
     return {

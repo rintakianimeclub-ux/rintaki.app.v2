@@ -44,9 +44,9 @@ export default function DashboardProfile() {
   });
 
   const fullAddress = wp && [wp.address1, wp.address2, wp.city, wp.state, wp.zip, wp.country].filter(Boolean).join(", ");
-  const displayName = wp?.first_name || wp?.last_name
-    ? `${wp.first_name || ""} ${wp.last_name || ""}`.trim()
-    : wp?.display_name || user?.name;
+  const displayName = wp?.display_name
+    || (wp?.first_name || wp?.last_name ? `${wp.first_name || ""} ${wp.last_name || ""}`.trim() : "")
+    || user?.name;
 
   return (
     <div className="space-y-5">

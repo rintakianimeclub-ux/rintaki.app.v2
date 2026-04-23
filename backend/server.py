@@ -144,33 +144,35 @@ async def require_member(user: dict = Depends(get_current_user)):
         raise HTTPException(403, "This feature is for members only. Join the club to unlock it.")
     return user
 
-async def add_points(user_id: str, amount: int, reason: str):
+async def add_points(user_id: str, amount: int, reason: str, ref: Optional[str] = None):
     await db.users.update_one({"user_id": user_id}, {"$inc": {"points": amount}})
     await db.points_transactions.insert_one({
         "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
         "amount": amount,
         "reason": reason,
+        "ref": ref,
         "kind": "points",
         "created_at": iso(now_utc()),
     })
     u = await db.users.find_one({"user_id": user_id}, {"email": 1, "_id": 0})
     if u and u.get("email"):
-        await mycred_adjust(u["email"], os.environ.get("RINTAKI_MYCRED_POINTS_TYPE", "mycred_default"), amount, reason)
+        await mycred_adjust(u["email"], os.environ.get("RINTAKI_MYCRED_POINTS_TYPE", "mycred_default"), amount, reason, ref=ref)
 
-async def add_anime_cash(user_id: str, amount: int, reason: str):
+async def add_anime_cash(user_id: str, amount: int, reason: str, ref: Optional[str] = None):
     await db.users.update_one({"user_id": user_id}, {"$inc": {"anime_cash": amount}})
     await db.points_transactions.insert_one({
         "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
         "amount": amount,
         "reason": reason,
+        "ref": ref,
         "kind": "anime_cash",
         "created_at": iso(now_utc()),
     })
     u = await db.users.find_one({"user_id": user_id}, {"email": 1, "_id": 0})
     if u and u.get("email"):
-        await mycred_adjust(u["email"], os.environ.get("RINTAKI_MYCRED_CASH_TYPE", "anime_cash"), amount, reason)
+        await mycred_adjust(u["email"], os.environ.get("RINTAKI_MYCRED_CASH_TYPE", "anime_cash"), amount, reason, ref=ref)
 
 # ----------------- MyCred (rintaki.org) sync -----------------
 _mycred_cache: dict = {}  # email -> (ts, points, anime_cash)
@@ -214,24 +216,37 @@ async def mycred_balance(email: str) -> dict:
         logger.warning(f"mycred_balance failed: {e}")
         return {"found": False}
 
-async def mycred_adjust(email: str, type_slug: str, amount: int, reason: str) -> None:
-    """Push a point adjustment to MyCred on rintaki.org. Fire-and-forget."""
+async def mycred_adjust(email: str, type_slug: str, amount: int, reason: str, ref: Optional[str] = None) -> dict:
+    """Push a point adjustment to MyCred on rintaki.org. Returns {ok, skipped?, new_balance?, reason?}.
+
+    `ref` is an optional idempotency key. When present, the WP plugin (v1.4.0+)
+    skips the award if it has already been credited — so retries & re-sync are safe.
+    """
+    result = {"ok": False}
     if not email or amount == 0:
-        return
+        return result
     base = os.environ.get("RINTAKI_WP_BASE_URL")
     key = os.environ.get("RINTAKI_WP_KEY")
     if not base or not key:
-        return
+        return result
     try:
-        async with httpx.AsyncClient(timeout=5) as hc:
-            await hc.post(
+        async with httpx.AsyncClient(timeout=10) as hc:
+            params = {"email": email, "type": type_slug, "amount": amount, "reason": reason}
+            if ref:
+                params["ref"] = ref
+            r = await hc.post(
                 f"{base.rstrip('/')}/wp-json/rintaki/v1/adjust",
-                params={"email": email, "type": type_slug, "amount": amount, "reason": reason},
+                params=params,
                 headers={"X-Rintaki-Key": key},
             )
         _mycred_cache.pop(email, None)
+        try:
+            result = r.json()
+        except Exception:
+            result = {"ok": r.status_code == 200}
     except Exception as e:
         logger.warning(f"mycred_adjust failed: {e}")
+    return result
 
 async def public_user_enriched(u: dict) -> dict:
     """Return public_user(u) but overwrite points/anime_cash/membership with MyCred when available."""
@@ -330,6 +345,11 @@ async def startup():
     await db.events.create_index("starts_at")
     await db.daily_logins.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.tcg_user_cards.create_index([("user_id", 1), ("card_id", 1)], unique=True)
+    # Points & claims
+    await db.points_transactions.create_index("ref", sparse=True)  # idempotency key for auto awards
+    await db.points_transactions.create_index([("user_id", 1), ("created_at", -1)])
+    await db.point_claims.create_index([("status", 1), ("created_at", 1)])
+    await db.point_claims.create_index([("user_id", 1), ("created_at", -1)])
 
     # Seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@rintaki.org").lower()
@@ -426,6 +446,22 @@ async def logout(request: Request, response: Response):
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
+    # Fire-and-forget: award the daily-visit point (+1, idempotent per UTC day)
+    # and evaluate the monthly Active-Member bonus. Members only.
+    if user.get("role") == "admin" or user.get("is_member"):
+        try:
+            today = now_utc().date().isoformat()
+            ref = f"visit:{user['user_id']}:{today}"
+            if not await db.points_transactions.find_one({"ref": ref}):
+                await add_points(user["user_id"], 1, "Daily app visit", ref=ref)
+        except Exception as e:
+            logger.warning(f"daily visit award failed: {e}")
+        try:
+            await _maybe_award_active_member(user)
+        except Exception as e:
+            logger.warning(f"active member award failed: {e}")
+        # Refresh the user doc so the enriched response reflects the new point totals
+        user = await db.users.find_one({"user_id": user["user_id"]}) or user
     return await public_user_enriched(user)
 
 @api.post("/auth/google/session")
@@ -734,9 +770,10 @@ async def asgaros_post_reply(slug: str, data: AsgarosReplyIn, user: dict = Depen
         raise HTTPException(r.status_code, f"rintaki.org refused the reply: {msg}")
 
     resp = r.json()
-    # Reward member +2 pts for a forum reply
+    # Reward member +2 pts for a forum reply (idempotent via post_id)
+    reply_ref = f"asgaros_reply:{resp.get('post_id') or slug + ':' + iso(now_utc())}"
     try:
-        await add_points(user["user_id"], 2, "Replied to a forum topic")
+        await add_points(user["user_id"], 2, "Replied to a forum topic", ref=reply_ref)
     except Exception as e:
         logger.warning(f"Reply points failed: {e}")
     # Invalidate the cached topic so a refresh shows the new post
@@ -887,7 +924,7 @@ async def daily_claim(user: dict = Depends(require_member)):
         await db.daily_logins.insert_one({"user_id": user["user_id"], "date": today, "created_at": iso(now_utc())})
     except Exception:
         raise HTTPException(400, "Already claimed today")
-    await add_points(user["user_id"], 5, "Daily login bonus")
+    await add_points(user["user_id"], 5, "Daily login bonus", ref=f"daily_login:{user['user_id']}:{today}")
     u = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
     return {"ok": True, "points": u.get("points", 0)}
 
@@ -1810,7 +1847,7 @@ def _parse_guide_sections(html: str, drop_headings: Optional[list] = None) -> li
 
 
 @api.get("/guides/points/parsed")
-async def guide_points_parsed(refresh: bool = False):
+async def guide_points_parsed(refresh: bool = False, user: Optional[dict] = Depends(get_current_user_optional)):
     """Structured version of the Points guide — sections + point items for nicer rendering."""
     data = await _guide_cached("points", "https://rintaki.org/points/", refresh=refresh)
     sections = _parse_guide_sections(
@@ -1824,11 +1861,296 @@ async def guide_points_parsed(refresh: bool = False):
     )
     return {
         "title": data.get("title", "Points Guide"),
-        "sections": sections,
+        "sections": _inject_claim_state(sections, user),
         "cached": data.get("cached"),
         "stale": data.get("stale", False),
         "source_url": "https://rintaki.org/points/",
     }
+
+# ----------------- Point Claims (member self-report, admin-approved → MyCred) -----------------
+#
+# Each Points-Guide line becomes a deterministic item_key = slug("heading || desc"). We classify
+# every item into one of three modes:
+#   - AUTO:  the app awards these automatically. The Guide shows a static checkmark.
+#   - ADMIN: only an admin can award these (officer role, MOTM, giveaway winners, etc.). No Claim button.
+#   - CLAIM: member taps "Claim", optionally attaches a photo. Admin reviews the queue and approves/rejects.
+#             Approval calls mycred_adjust() → hits the WP plugin /adjust endpoint with a unique `ref`
+#             so MyCred on rintaki.org gets the entry and duplicates are prevented.
+#
+# Keep these maps in sync with the rintaki.org/points page. When new items appear they default to CLAIM.
+
+import hashlib as _hashlib
+
+def _item_key(heading: str, desc: str) -> str:
+    """Deterministic slug used to identify a Points-Guide line across cache refreshes."""
+    raw = f"{(heading or '').strip().lower()}||{(desc or '').strip().lower()}"
+    return _hashlib.sha1(raw.encode("utf-8")).hexdigest()[:14]
+
+# Category lookups — expressed as "substring in heading::desc" so small wording tweaks on the
+# rintaki.org page don't break classification.
+AUTO_ITEMS = {
+    "member status::each time you visit":      {"amount": 1,  "ref_prefix": "visit"},
+    "submissions::fan art or poem":            {"amount": 50, "ref_prefix": "article_fanart"},
+    "submissions::art for merchandise":        {"amount": 50, "ref_prefix": "article_merch"},
+    "submissions::anime reviews":              {"amount": 25, "ref_prefix": "article_review"},  # midpoint of 25-50; admin can bump
+    # Note: forum reply (+2) isn't on the Points Guide; it's app-only and already awarded.
+}
+ADMIN_ONLY_ITEMS = {
+    "member status::officer positions",
+    "awards::member of the month",
+    "awards::gift card giveaway",
+    "awards::anime give away",
+    "bonuses::additional points are at times awarded",   # "Varies" — admin discretion
+    "bonuses::reaching 1000 points",
+}
+
+def _classify_item(heading: str, desc: str) -> str:
+    """Return 'auto' | 'admin' | 'claim' for a given guide line."""
+    needle = f"{(heading or '').lower()}::{(desc or '').lower()}"
+    for auto_key in AUTO_ITEMS:
+        if auto_key in needle:
+            return "auto"
+    for admin_key in ADMIN_ONLY_ITEMS:
+        if admin_key in needle:
+            return "admin"
+    return "claim"
+
+def _inject_claim_state(sections: list, user: Optional[dict]) -> list:
+    """Return sections with `item_key`, `mode`, and per-user `claim_status` fields added to each item."""
+    out = []
+    for s in sections:
+        items = []
+        for it in s.get("items", []):
+            key = _item_key(s["heading"], it["desc"])
+            mode = _classify_item(s["heading"], it["desc"])
+            items.append({
+                **it,
+                "item_key": key,
+                "mode": mode,  # "auto" | "admin" | "claim"
+            })
+        out.append({**s, "items": items})
+    return out
+
+class PointClaimIn(BaseModel):
+    item_key: str
+    item_heading: str
+    item_desc: str
+    amount: Optional[int] = None  # member-suggested amount for ranged items (e.g. 25-50 pts); capped by admin
+    note: Optional[str] = ""
+    photo_data_url: Optional[str] = None  # base64-encoded data URL or regular URL
+
+async def _store_claim_photo(data_url: str, user_id: str) -> Optional[str]:
+    """Save a base64 data URL photo attached to a claim and return its public URL."""
+    import base64
+    import re
+    if not data_url:
+        return None
+    m = re.match(r"^data:image/([a-zA-Z]+);base64,(.*)$", data_url)
+    if not m:
+        # Assume it's already a URL (http or /api/uploads/...)
+        return data_url
+    ext = m.group(1).lower()
+    if ext not in ("png", "jpeg", "jpg", "webp", "gif"):
+        raise HTTPException(400, "Unsupported photo format")
+    try:
+        raw = base64.b64decode(m.group(2))
+    except Exception:
+        raise HTTPException(400, "Invalid base64 photo")
+    if len(raw) > 6 * 1024 * 1024:
+        raise HTTPException(413, "Photo too large (max 6 MB)")
+    CLAIMS_DIR = Path("/app/backend/uploads/claims")
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    fname = f"{user_id}_{uuid.uuid4().hex[:10]}.{ext if ext != 'jpeg' else 'jpg'}"
+    (CLAIMS_DIR / fname).write_bytes(raw)
+    return f"/api/uploads/claims/{fname}"
+
+@api.post("/guides/points/claim")
+async def submit_point_claim(data: PointClaimIn, user: dict = Depends(require_member)):
+    """Member submits a claim for a Points-Guide item that needs admin verification."""
+    mode = _classify_item(data.item_heading, data.item_desc)
+    if mode == "auto":
+        raise HTTPException(400, "This item is awarded automatically — no claim needed.")
+    if mode == "admin":
+        raise HTTPException(400, "This item is admin-assigned only.")
+    amount = int(data.amount) if data.amount else 0
+    if amount <= 0 or amount > 500:
+        raise HTTPException(400, "Claim amount must be between 1 and 500 points")
+    photo_url = await _store_claim_photo(data.photo_data_url, user["user_id"]) if data.photo_data_url else None
+    claim_id = f"pclm_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "claim_id": claim_id,
+        "user_id": user["user_id"],
+        "user_email": user.get("email", ""),
+        "user_name": user.get("name", ""),
+        "item_key": data.item_key,
+        "item_heading": data.item_heading,
+        "item_desc": data.item_desc,
+        "amount": amount,
+        "note": (data.note or "").strip()[:500],
+        "photo_url": photo_url,
+        "status": "pending",
+        "created_at": iso(now_utc()),
+    }
+    await db.point_claims.insert_one(doc)
+    doc.pop("_id", None)
+    return {"ok": True, "claim": doc}
+
+@api.get("/guides/points/my-claims")
+async def my_point_claims(user: dict = Depends(get_current_user)):
+    """Member views their own claim history (most recent first)."""
+    items = await db.point_claims.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"claims": items}
+
+@api.get("/admin/point-claims")
+async def admin_list_claims(status: str = "pending", user: dict = Depends(require_admin)):
+    """Admin queue — filter by status=pending|approved|rejected|all."""
+    q = {} if status == "all" else {"status": status}
+    items = await db.point_claims.find(q, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return {"claims": items}
+
+class PointClaimDecide(BaseModel):
+    amount: Optional[int] = None  # admin can override the approved amount
+    admin_note: Optional[str] = ""
+
+@api.post("/admin/point-claims/{claim_id}/approve")
+async def admin_approve_claim(claim_id: str, data: PointClaimDecide, user: dict = Depends(require_admin)):
+    """Approve a manual point claim → award points via MyCred on rintaki.org (idempotent)."""
+    claim = await db.point_claims.find_one({"claim_id": claim_id})
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+    if claim.get("status") == "approved":
+        return {"ok": True, "already": True}
+    amount = int(data.amount) if data.amount else int(claim.get("amount") or 0)
+    if amount <= 0 or amount > 1000:
+        raise HTTPException(400, "Approved amount must be between 1 and 1000")
+    # Award
+    ref = f"claim:{claim_id}"
+    reason = f"{claim['item_heading']}: {claim['item_desc'][:60]}"
+    await add_points(claim["user_id"], amount, reason, ref=ref)
+    await db.point_claims.update_one(
+        {"claim_id": claim_id},
+        {"$set": {
+            "status": "approved",
+            "approved_amount": amount,
+            "approved_at": iso(now_utc()),
+            "approved_by": user["user_id"],
+            "admin_note": (data.admin_note or "").strip()[:500],
+        }},
+    )
+    # Notify the member
+    try:
+        await push_notification(
+            claim["user_id"],
+            "Claim approved!",
+            f"You earned +{amount} pts for: {claim['item_desc'][:60]}",
+            "points",
+            "/dashboard/points-guide",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "amount": amount}
+
+@api.post("/admin/point-claims/{claim_id}/reject")
+async def admin_reject_claim(claim_id: str, data: PointClaimDecide, user: dict = Depends(require_admin)):
+    claim = await db.point_claims.find_one({"claim_id": claim_id})
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+    if claim.get("status") == "approved":
+        raise HTTPException(400, "Already approved — can't reject.")
+    await db.point_claims.update_one(
+        {"claim_id": claim_id},
+        {"$set": {
+            "status": "rejected",
+            "rejected_at": iso(now_utc()),
+            "rejected_by": user["user_id"],
+            "admin_note": (data.admin_note or "").strip()[:500],
+        }},
+    )
+    try:
+        await push_notification(
+            claim["user_id"],
+            "Claim not approved",
+            f"Your claim for {claim['item_desc'][:60]} was declined. " +
+            ((data.admin_note or "")[:100] or ""),
+            "points",
+            "/dashboard/points-guide",
+        )
+    except Exception:
+        pass
+    return {"ok": True}
+
+# ----------------- Auto awards that need explicit endpoints -----------------
+
+@api.post("/guides/points/track-visit")
+async def track_daily_visit(user: dict = Depends(require_member)):
+    """Called by the app on open — awards 1 pt / day / member, idempotent across retries.
+
+    Separate from /auth/daily-bonus (which is +5 and requires the user to tap a button).
+    This is the 'Each time you visit our site' +1 pt entry from the rintaki.org Points Guide.
+    """
+    today = now_utc().date().isoformat()
+    ref = f"visit:{user['user_id']}:{today}"
+    # Mongo-side dedup: only award if we haven't seen this ref
+    existing = await db.points_transactions.find_one({"ref": ref})
+    if existing:
+        return {"ok": True, "already": True}
+    await add_points(user["user_id"], 1, "Daily app visit", ref=ref)
+    return {"ok": True, "awarded": 1}
+
+# ----------------- Monthly Active-Member award (50 pts/mo if ≥ 400 pts earned last month) -----------------
+ACTIVE_MEMBER_THRESHOLD = 400  # ~1/3 of the max monthly manual+admin points ceiling
+ACTIVE_MEMBER_AWARD = 50
+
+async def _maybe_award_active_member(user: dict) -> Optional[int]:
+    """If the user earned ≥ ACTIVE_MEMBER_THRESHOLD pts in the previous calendar month
+    and hasn't been credited yet for that month, award +50 pts. Idempotent via ref."""
+    now = now_utc()
+    # Use UTC; compute prior month
+    if now.month == 1:
+        prev_year, prev_month = now.year - 1, 12
+    else:
+        prev_year, prev_month = now.year, now.month - 1
+    period = f"{prev_year:04d}-{prev_month:02d}"
+    ref = f"active_member:{user['user_id']}:{period}"
+    # already credited?
+    if await db.points_transactions.find_one({"ref": ref}):
+        return None
+    # Sum prior-month earnings. Use created_at ISO string prefix (faster than date parsing).
+    period_prefix = period + "-"
+    cursor = db.points_transactions.find(
+        {
+            "user_id": user["user_id"],
+            "kind": "points",
+            "amount": {"$gt": 0},
+            "created_at": {"$regex": f"^{period_prefix}"},
+        },
+        {"_id": 0, "amount": 1, "ref": 1},
+    )
+    total = 0
+    async for tx in cursor:
+        # Exclude prior active-member credits so this never self-amplifies
+        if str(tx.get("ref", "")).startswith("active_member:"):
+            continue
+        total += int(tx.get("amount") or 0)
+    if total < ACTIVE_MEMBER_THRESHOLD:
+        return None
+    await add_points(
+        user["user_id"],
+        ACTIVE_MEMBER_AWARD,
+        f"Active Member bonus ({period}) — earned {total} pts last month",
+        ref=ref,
+    )
+    try:
+        await push_notification(
+            user["user_id"],
+            "Active Member bonus!",
+            f"+{ACTIVE_MEMBER_AWARD} pts for earning {total} pts in {period}.",
+            "points",
+            "/dashboard/points-guide",
+        )
+    except Exception:
+        pass
+    return ACTIVE_MEMBER_AWARD
 
 @api.get("/guides/anime-cash/parsed")
 async def guide_anime_cash_parsed(refresh: bool = False):
@@ -2174,7 +2496,7 @@ async def approve_post(post_id: str, user: dict = Depends(require_admin)):
         "approved_at": iso(now_utc()),
         "approved_by": user["user_id"],
     }})
-    await add_points(p["author_id"], reward, f"Spotlight {p['media_type']} approved")
+    await add_points(p["author_id"], reward, f"Spotlight {p['media_type']} approved", ref=f"spotlight:{post_id}")
     await push_notification(
         p["author_id"],
         "Spotlight post approved!",
@@ -2665,8 +2987,8 @@ async def approve_claim(claim_id: str, user: dict = Depends(require_admin)):
         return {"ok": True, "already": True}
     await db.tcg_claims.update_one({"claim_id": claim_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
     # Award 50 points + 100 anime_cash for completing a theme set
-    await add_points(claim["user_id"], 50, "Theme set completion award")
-    await add_anime_cash(claim["user_id"], 100, "Theme set completion cash")
+    await add_points(claim["user_id"], 50, "Theme set completion award", ref=f"theme_set:{claim_id}")
+    await add_anime_cash(claim["user_id"], 100, "Theme set completion cash", ref=f"theme_set_cash:{claim_id}")
     await push_notification(claim["user_id"], "Award approved!", "You earned 50 pts + 100 Anime Cash for your theme set.", "tcg", "/tcg/claims")
     return {"ok": True}
 
@@ -2882,7 +3204,7 @@ async def approve_article(article_id: str, user: dict = Depends(require_admin)):
         return {"ok": True, "already": True}
     reward = 25 if a["kind"] == "blog" else 50
     await db.article_submissions.update_one({"article_id": article_id}, {"$set": {"status": "approved", "approved_at": iso(now_utc())}})
-    await add_points(a["user_id"], reward, f"Approved {a['kind']} article")
+    await add_points(a["user_id"], reward, f"Approved {a['kind']} article", ref=f"article:{article_id}")
     await push_notification(a["user_id"], "Article approved!", f"Your submission '{a['title']}' earned {reward} points.", "article", "/dashboard/submit-article")
     return {"ok": True}
 
@@ -3055,6 +3377,11 @@ app.include_router(api)
 # Serve Spotlight uploads (images & videos) behind /api/uploads so the
 # k8s ingress routes them to backend:8001 like any other /api/* path.
 app.mount("/api/uploads/spotlight", StaticFiles(directory=str(UPLOADS_DIR)), name="spotlight-uploads")
+
+# Serve point-claim proof photos (images only, admin + member can see).
+CLAIMS_DIR_STATIC = Path("/app/backend/uploads/claims")
+CLAIMS_DIR_STATIC.mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads/claims", StaticFiles(directory=str(CLAIMS_DIR_STATIC)), name="claim-uploads")
 
 _frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(

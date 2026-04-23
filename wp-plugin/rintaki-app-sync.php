@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Rintaki App Sync
  * Description: Exposes MyCred points, Anime Cash, and PMPro membership level to the Rintaki mobile app, and accepts adjustments. Secured with a shared secret.
- * Version:     1.3.0
+ * Version:     1.4.0
  * Author:      Rintaki Anime Club Society
  */
 
@@ -78,7 +78,10 @@ add_action('rest_api_init', function () {
     ]);
 
     // POST /wp-json/rintaki/v1/adjust
-    //   body: { email, type: "mycred_default"|"anime_cash", amount: int, reason?: string }
+    //   body: { email, type: "mycred_default"|"anime_cash", amount: int, reason?: string, ref?: string }
+    //   `ref` is an optional external-key the app provides (e.g. "daily_visit:2026-04-23:u12").
+    //   When present, the plugin first checks if an entry with the same ref_type+ref_id already exists
+    //   and skips the award to guarantee idempotency even on retries.
     register_rest_route('rintaki/v1', '/adjust', [
         'methods'             => 'POST',
         'permission_callback' => 'rintaki_app_check_key',
@@ -87,6 +90,7 @@ add_action('rest_api_init', function () {
             $type   = (string) $req->get_param('type');
             $amount = (int)    $req->get_param('amount');
             $reason = sanitize_text_field((string) ($req->get_param('reason') ?: 'Rintaki app activity'));
+            $ref    = sanitize_text_field((string) ($req->get_param('ref') ?: ''));
 
             if (empty($email))  { return new WP_Error('bad_request', 'email is required', ['status' => 400]); }
             if ($amount === 0)  { return new WP_REST_Response(['ok' => true, 'skipped' => true], 200); }
@@ -99,9 +103,22 @@ add_action('rest_api_init', function () {
             $user = get_user_by('email', $email);
             if (!$user) { return new WP_Error('not_found', 'User not found on WordPress', ['status' => 404]); }
 
-            mycred_add('rintaki_app', (int) $user->ID, $amount, $reason, 0, [], $type);
+            // Idempotency: if this ref has already been credited, return the current balance.
+            if (!empty($ref) && function_exists('mycred_has_entry')) {
+                $already = mycred_has_entry('rintaki_app', 0, (int) $user->ID, ['ref' => $ref], $type);
+                if ($already) {
+                    return new WP_REST_Response([
+                        'ok' => true, 'skipped' => true, 'reason' => 'already_credited',
+                        'new_balance' => (int) rintaki_app_balance($user->ID, $type),
+                    ], 200);
+                }
+            }
+
+            // Store the ref inside MyCred's $data array so it can be queried and shown in logs.
+            $data = empty($ref) ? [] : ['ref' => $ref];
+            mycred_add('rintaki_app', (int) $user->ID, $amount, $reason, 0, $data, $type);
             $new_balance = (int) rintaki_app_balance($user->ID, $type);
-            return new WP_REST_Response(['ok' => true, 'new_balance' => $new_balance], 200);
+            return new WP_REST_Response(['ok' => true, 'new_balance' => $new_balance, 'ref' => $ref], 200);
         },
     ]);
 

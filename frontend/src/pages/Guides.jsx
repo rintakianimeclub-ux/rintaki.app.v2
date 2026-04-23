@@ -2,10 +2,11 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Card, Button } from "@/components/ui-brutal";
+import { Card, Button, Input, Textarea } from "@/components/ui-brutal";
 import {
   ArrowLeft, Trophy, Buildings, CurrencyCircleDollar, ArrowsClockwise, ArrowSquareOut,
   Star, Users, PencilSimple, ShieldCheck, HandHeart, Gift, CaretRight, Lock,
+  Check, Hourglass, X as XIcon, Camera, CheckCircle, Shield, PaperPlaneTilt,
 } from "@phosphor-icons/react";
 
 // Map a section heading → icon + brutal color.  Falls back to a neutral card.
@@ -36,18 +37,57 @@ function shortUnit(unit) {
     .trim();
 }
 
-function ItemRow({ item, pill }) {
+// Pick a sensible default amount for a ranged/varies item (e.g. "25-50 pts" → 25, "Varies" → 0)
+function defaultClaimAmount(item) {
+  const raw = String(item.amount || "").trim();
+  const m = raw.match(/(\d+)(?:-(\d+))?/);
+  if (m) return parseInt(m[1], 10);
+  return 0;
+}
+
+// Small status pill + action per item
+function ModeBadge({ mode, claim }) {
+  if (claim) {
+    if (claim.status === "pending")
+      return <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-[var(--secondary)] text-black border-2 border-black rounded-full px-2 py-0.5"><Hourglass size={10} weight="bold" /> Pending</span>;
+    if (claim.status === "approved")
+      return <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-[var(--primary)] text-white border-2 border-black rounded-full px-2 py-0.5"><CheckCircle size={10} weight="fill" /> +{claim.approved_amount || claim.amount}</span>;
+    if (claim.status === "rejected")
+      return <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-black text-white border-2 border-black rounded-full px-2 py-0.5"><XIcon size={10} weight="bold" /> Declined</span>;
+  }
+  if (mode === "auto")
+    return <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-[var(--primary)] text-white border-2 border-black rounded-full px-2 py-0.5"><CheckCircle size={10} weight="fill" /> Auto</span>;
+  if (mode === "admin")
+    return <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-black text-white border-2 border-black rounded-full px-2 py-0.5"><Shield size={10} weight="fill" /> Admin</span>;
+  return null;
+}
+
+function ItemRow({ section, item, pill, claimByKey, onClaim }) {
+  const claim = claimByKey?.[item.item_key];
+  const canClaim = item.mode === "claim" && (!claim || claim.status === "rejected");
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-dashed border-black/10 last:border-0" data-testid="guide-item">
-      <div className={`shrink-0 min-w-[64px] text-center border-2 border-black rounded-full px-2.5 py-1 font-black text-xs uppercase tracking-wider ${pill}`}>
-        {item.amount}{item.unit ? ` ${shortUnit(item.unit).replace(/^pts\b/, "pts")}` : ""}
+    <div className="py-2 border-b border-dashed border-black/10 last:border-0" data-testid="guide-item">
+      <div className="flex items-center gap-3">
+        <div className={`shrink-0 min-w-[64px] text-center border-2 border-black rounded-full px-2.5 py-1 font-black text-xs uppercase tracking-wider ${pill}`}>
+          {item.amount}{item.unit ? ` ${shortUnit(item.unit).replace(/^pts\b/, "pts")}` : ""}
+        </div>
+        <div className="text-sm flex-1 leading-snug">{item.desc}</div>
+        <ModeBadge mode={item.mode} claim={claim} />
       </div>
-      <div className="text-sm flex-1">{item.desc}</div>
+      {canClaim && (
+        <div className="flex justify-end mt-1">
+          <button onClick={() => onClaim(section, item)}
+                  data-testid={`claim-btn-${item.item_key}`}
+                  className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest bg-white border-2 border-black rounded-full px-3 py-1 shadow-[2px_2px_0_#111] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none">
+            <PaperPlaneTilt size={11} weight="bold" /> Claim
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function SectionCard({ section }) {
+function SectionCard({ section, claimByKey, onClaim }) {
   const { icon: Icon, color, pill } = styleForSection(section.heading);
   return (
     <Card className={`${color} p-0 overflow-hidden`} data-testid={`guide-section-${section.heading.toLowerCase().replace(/\s+/g,"-")}`}>
@@ -68,7 +108,8 @@ function SectionCard({ section }) {
       {section.items?.length > 0 && (
         <div className="px-3 pb-3 pt-1 bg-white/80 text-black mt-3 border-t-2 border-black">
           {section.items.map((it, i) => (
-            <ItemRow key={i} item={it} pill={pill} />
+            <ItemRow key={i} section={section} item={it} pill={pill}
+                     claimByKey={claimByKey} onClaim={onClaim} />
           ))}
         </div>
       )}
@@ -76,13 +117,145 @@ function SectionCard({ section }) {
   );
 }
 
-function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections }) {
+function ClaimModal({ open, section, item, onClose, onSubmitted }) {
+  const [amount, setAmount] = useState(0);
+  const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState(""); // data URL
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (open && item) {
+      setAmount(defaultClaimAmount(item));
+      setNote(""); setPhoto(""); setErr("");
+    }
+  }, [open, item]);
+
+  if (!open || !item) return null;
+
+  const onPickPhoto = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 6 * 1024 * 1024) {
+      setErr("Photo too large — max 6 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(reader.result);
+    reader.readAsDataURL(f);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr("");
+    const amt = parseInt(amount, 10);
+    if (!amt || amt <= 0) { setErr("Enter a valid amount."); return; }
+    setSubmitting(true);
+    try {
+      await api.post("/guides/points/claim", {
+        item_key: item.item_key,
+        item_heading: section.heading,
+        item_desc: item.desc,
+        amount: amt,
+        note: note.trim(),
+        photo_data_url: photo || null,
+      });
+      onSubmitted?.();
+      onClose();
+    } catch (e2) {
+      setErr(e2.response?.data?.detail || "Failed to submit claim.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const ranged = String(item.amount || "").match(/^\d+-\d+$/);
+  const amountHint = ranged
+    ? `Range: ${item.amount} ${shortUnit(item.unit)} — admin sets the final amount.`
+    : String(item.amount).toLowerCase() === "varies"
+    ? "Admin will set the final amount."
+    : "";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-3" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit}
+            className="bg-white border-2 border-black rounded-2xl w-full max-w-md p-5 shadow-[6px_6px_0_#111]"
+            data-testid="claim-form">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="font-black text-xl">Submit claim</h2>
+          <button type="button" onClick={onClose} data-testid="claim-close"
+                  className="w-8 h-8 border-2 border-black rounded-full flex items-center justify-center"><XIcon size={14} weight="bold" /></button>
+        </div>
+
+        <div className="bg-black text-white border-2 border-black rounded-xl p-3 mb-3">
+          <div className="text-[10px] font-black uppercase tracking-widest opacity-70">{section.heading}</div>
+          <div className="font-bold text-sm leading-snug">{item.desc}</div>
+          <div className="text-[10px] font-black uppercase tracking-widest mt-1 text-[var(--secondary)]">
+            {item.amount} {shortUnit(item.unit)}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">Claim amount</label>
+            <Input type="number" min="1" max="500" value={amount}
+                   onChange={(e) => setAmount(e.target.value)}
+                   data-testid="claim-amount" />
+            {amountHint && <p className="text-[10px] text-[var(--muted-fg)] font-bold mt-1">{amountHint}</p>}
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">Note (optional)</label>
+            <Textarea rows={3} placeholder="e.g. Attended monthly meeting on April 23"
+                      value={note} onChange={(e) => setNote(e.target.value)}
+                      data-testid="claim-note" />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">Photo proof (optional)</label>
+            {photo ? (
+              <div className="relative border-2 border-black rounded-lg overflow-hidden mt-1" data-testid="claim-photo-preview">
+                <img src={photo} alt="preview" className="w-full max-h-48 object-cover" />
+                <button type="button" onClick={() => setPhoto("")}
+                        className="absolute top-1 right-1 w-7 h-7 bg-white border-2 border-black rounded-full flex items-center justify-center shadow-[2px_2px_0_#111]">
+                  <XIcon size={12} weight="bold" />
+                </button>
+              </div>
+            ) : (
+              <label className="mt-1 flex items-center justify-center gap-2 border-2 border-dashed border-black rounded-xl py-3 cursor-pointer bg-[var(--muted)]">
+                <Camera size={18} weight="fill" />
+                <span className="font-bold text-sm">Attach receipt / photo</span>
+                <input type="file" accept="image/*" className="hidden" onChange={onPickPhoto} data-testid="claim-photo-input" />
+              </label>
+            )}
+          </div>
+
+          {err && (
+            <div className="bg-[var(--primary)] text-white border-2 border-black rounded-lg px-3 py-2 text-sm font-bold" data-testid="claim-err">{err}</div>
+          )}
+        </div>
+
+        <Button type="submit" disabled={submitting} className="w-full mt-3" data-testid="claim-submit">
+          {submitting ? "Submitting…" : "Submit for admin review"}
+        </Button>
+        <p className="text-[10px] text-center text-[var(--muted-fg)] font-bold uppercase tracking-widest mt-2">
+          Points credit to MyCred on rintaki.org once approved.
+        </p>
+      </form>
+    </div>
+  );
+}
+
+function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections, enableClaims }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const isMember = !!user && (isAdmin || user.is_member);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [myClaims, setMyClaims] = useState([]);
+  const [claimModal, setClaimModal] = useState({ open: false, section: null, item: null });
 
   const load = async (refresh = false) => {
     try {
@@ -96,7 +269,26 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
       setRefreshing(false); setLoading(false);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [endpoint]);
+  const loadClaims = async () => {
+    if (!enableClaims || !isMember) return;
+    try {
+      const { data: d } = await api.get("/guides/points/my-claims");
+      setMyClaims(d.claims || []);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); loadClaims(); /* eslint-disable-next-line */ }, [endpoint]);
+
+  // Latest claim per item_key (most recent wins)
+  const claimByKey = React.useMemo(() => {
+    const m = {};
+    for (const c of myClaims) {
+      if (!m[c.item_key]) m[c.item_key] = c;  // already sorted newest-first by API
+    }
+    return m;
+  }, [myClaims]);
+
+  const openClaim = (section, item) => setClaimModal({ open: true, section, item });
+  const closeClaim = () => setClaimModal({ open: false, section: null, item: null });
 
   // When rintaki.org returns the PMPro "Membership Required" placeholder,
   // the parser will produce a single section with heading like "Membership Required".
@@ -135,6 +327,20 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
         )}
       </Card>
 
+      {/* Claim status banner for members */}
+      {enableClaims && isMember && myClaims.length > 0 && (
+        <Card className="bg-[var(--secondary)] p-3 flex items-center gap-2" data-testid="my-claims-banner">
+          <div className="flex-1 text-sm font-bold leading-tight">
+            <div className="flex items-center gap-1.5"><Hourglass size={14} weight="fill" />
+              {myClaims.filter(c => c.status === "pending").length} pending ·&nbsp;
+              <CheckCircle size={14} weight="fill" />
+              {myClaims.filter(c => c.status === "approved").length} approved
+            </div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)] mt-0.5">Your claims</div>
+          </div>
+        </Card>
+      )}
+
       {loading ? (
         <Card data-testid="guide-loading" className="text-center">
           <div className="animate-pulse text-sm font-bold text-[var(--muted-fg)]">Syncing from rintaki.org…</div>
@@ -152,11 +358,11 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
               <p className="text-sm mt-1">{lockedBody || "The website requires a member login to view this page. Here's the in-app summary while we wait for admin to open it up."}</p>
             </Card>
           )}
-          {fallbackSections.map((s, i) => <SectionCard key={i} section={s} />)}
+          {fallbackSections.map((s, i) => <SectionCard key={i} section={s} claimByKey={{}} onClaim={() => {}} />)}
         </>
       ) : (
         <>
-          {sections.map((s, i) => <SectionCard key={i} section={s} />)}
+          {sections.map((s, i) => <SectionCard key={i} section={s} claimByKey={claimByKey} onClaim={openClaim} />)}
         </>
       )}
 
@@ -168,6 +374,9 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
           Open on rintaki.org <ArrowSquareOut size={10} weight="bold" />
         </a>
       </div>
+
+      <ClaimModal open={claimModal.open} section={claimModal.section} item={claimModal.item}
+                  onClose={closeClaim} onSubmitted={loadClaims} />
     </div>
   );
 }
@@ -211,6 +420,7 @@ export function PointsGuide() {
       icon={Trophy}
       source_url="https://rintaki.org/points/"
       heroStat={heroStat}
+      enableClaims={true}
     />
   );
 }

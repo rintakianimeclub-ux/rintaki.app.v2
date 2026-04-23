@@ -179,3 +179,29 @@ See `/app/memory/test_credentials.md`.
 - `Guides.jsx` rewritten: black hero card + user's live stat (Points/Anime Cash balance), sectioned cards with themed icons (Star/Users/Trophy/Gift) and brutal color rotation (red/gold/accent/black/purple/white), each item gets a pill showing the amount with shortened unit ("25 PTS / HR", "$5 / MO"). Six sections render from rintaki.org/points: Member Status, Sign-In Sheet, Submissions, Awards, Community, Bonuses.
 - The Anime Cash page on rintaki.org is PMPro-gated — app detects the "Membership Required" placeholder and falls back to an in-app summary with a "Locked on rintaki.org" notice.
 - **Logout fix**: logout from Dashboard/More used to leave users on `/login` because `<Protected>` redirected before the home navigate ran. Fix: call `navigate("/", { replace: true })` BEFORE `logout()` so setUser(null) re-renders on the already-public home route. Also added a "Log out" button to the Members Dashboard itself (previously only on /more).
+
+### 2026-04-23 — Points Guide: claim-and-verify → MyCred on rintaki.org
+- **Diagnosis first**: plugin installed correctly on rintaki.org, secret matches. Only missing piece was v1.3.0+ plugin upload. JWT Auth plugin on the site hijacks `Authorization: Bearer`, so we stayed on `X-Rintaki-Key`.
+- **WP plugin v1.4.0**:
+  - `/adjust` endpoint now accepts an optional `ref` idempotency key — uses `mycred_has_entry()` to skip if already credited. Every app-triggered award stores its ref in MyCred's entry data so duplicates can't happen across retries.
+- **Backend**:
+  - `add_points()` / `add_anime_cash()` now accept `ref`. Forum replies, daily login, Spotlight approvals, theme-set awards, article approvals all updated to pass stable refs.
+  - New endpoints: `POST /guides/points/claim` (member submits), `GET /guides/points/my-claims` (member history), `GET /admin/point-claims?status=` (admin queue), `POST /admin/point-claims/{id}/approve|reject`.
+  - Approval awards via `add_points()` → `mycred_adjust()` → WP plugin `/adjust` with `ref=claim:{id}`, so every approved claim becomes a real MyCred log entry on rintaki.org (visible in the Points History widget).
+  - Claim photos: accept base64 data URL, saved to `/app/backend/uploads/claims/`, served via `/api/uploads/claims/` (StaticFiles mount).
+  - `/auth/me` now awards `+1 daily visit` per UTC day (idempotent via ref=`visit:{user}:{date}`) and checks the monthly Active-Member bonus.
+  - Active-Member bonus: +50 pts on the first `/auth/me` call of a new month IF the user earned ≥ **400 pts** in the prior calendar month (excluding prior active-member credits to prevent self-amplification). 400 = 1/3 of the ceiling of all manual+admin points.
+  - Points-Guide item classification (3 modes):
+    - **AUTO** (5 items): daily visit, fan art, merch art, anime reviews, forum reply
+    - **ADMIN** (6 items): officer positions, MOTM, giveaways, 1000-pts streak, exemplary participation
+    - **CLAIM** (18 items): rest of the page — members tap Claim, admin approves.
+  - Indexes: `points_transactions.ref`, `point_claims.{status,created_at}` & `{user_id,created_at}`.
+- **Frontend**:
+  - `Guides.jsx`: each item now shows a **mode badge** (AUTO ✓ / ADMIN shield / CLAIM paper-plane). Members see a **Claim** button on claim-mode items, with a banner showing their pending/approved counts.
+  - Claim modal: pre-fills amount (low end of range for ranged items), optional note (500 char) + optional photo (≤6 MB). Photo → base64 → backend storage → admin sees proof.
+  - `Admin.jsx`: new "Point claims" approval queue with member info, photo preview, override-amount field, admin-note field, and "Approve & credit MyCred" / "Reject" buttons.
+- **Verified end-to-end**: submitted claim → admin approved → rintaki.org admin's MyCred balance went from 1403 → 1428 (+1 daily visit +25 claim). Second `/auth/me` call did NOT re-award daily visit (idempotency confirmed).
+
+**ACTION REQUIRED (USER)**: Upload the latest `/app/wp-plugin/rintaki-app-sync.php` (v1.4.0) to rintaki.org. Until done, claim approvals will still work (MyCred gets credited via the existing `/adjust` endpoint), but:
+  - Forum replies won't post (`/forum-reply` endpoint new in v1.3.0)
+  - Claim-approval awards can be duplicated if the backend retries (idempotency `ref` is new in v1.4.0)

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Rintaki App Sync
  * Description: Exposes MyCred points, Anime Cash, and PMPro membership level to the Rintaki mobile app, and accepts adjustments. Secured with a shared secret.
- * Version:     1.4.0
+ * Version:     1.4.1
  * Author:      Rintaki Anime Club Society
  */
 
@@ -104,8 +104,23 @@ add_action('rest_api_init', function () {
             if (!$user) { return new WP_Error('not_found', 'User not found on WordPress', ['status' => 404]); }
 
             // Idempotency: if this ref has already been credited, return the current balance.
-            if (!empty($ref) && function_exists('mycred_has_entry')) {
-                $already = mycred_has_entry('rintaki_app', 0, (int) $user->ID, ['ref' => $ref], $type);
+            // We check the MyCred log table directly because mycred_has_entry() does not
+            // reliably match against arbitrary $data keys.
+            if (!empty($ref)) {
+                global $wpdb;
+                // MyCred uses wp_mycred_log (lowercase on most installs, camelCase on older ones).
+                $table = $wpdb->prefix . 'mycred_log';
+                if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") !== $table) {
+                    $table_alt = $wpdb->prefix . 'myCRED_log';
+                    if ($wpdb->get_var("SHOW TABLES LIKE '{$table_alt}'") === $table_alt) {
+                        $table = $table_alt;
+                    }
+                }
+                $data_like = '%' . $wpdb->esc_like('"ref";s:' . strlen($ref) . ':"' . $ref . '"') . '%';
+                $already = $wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM {$table} WHERE ctype = %s AND user_id = %d AND data LIKE %s LIMIT 1",
+                    $type, (int) $user->ID, $data_like
+                ));
                 if ($already) {
                     return new WP_REST_Response([
                         'ok' => true, 'skipped' => true, 'reason' => 'already_credited',

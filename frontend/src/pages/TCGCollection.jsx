@@ -119,7 +119,6 @@ export default function TCGCollection() {
                 </div>
                 <div className="p-2">
                   <div className="font-black text-sm truncate">{c.name}</div>
-                  <div className="text-[10px] uppercase tracking-widest text-[var(--muted-fg)]">#{c.number} · {c.rarity}</div>
                 </div>
                 {has && (
                   <div className="absolute top-1.5 right-1.5 w-7 h-7 bg-[var(--primary)] text-white rounded-full flex items-center justify-center border-2 border-black">

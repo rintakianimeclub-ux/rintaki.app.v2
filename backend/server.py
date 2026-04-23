@@ -932,6 +932,60 @@ async def my_points(user: dict = Depends(get_current_user)):
         "synced_with_mycred": False,
     }
 
+@api.get("/points/history")
+async def points_history(
+    kind: str = "points",
+    limit: int = 200,
+    user: dict = Depends(require_member),
+):
+    """Return the member's paginated transaction log for one balance type.
+
+    kind='points' | 'anime_cash'. Each row includes {amount, reason, ref, created_at}
+    plus a `source` bucket derived from the ref prefix so the UI can group + icon them.
+    """
+    if kind not in ("points", "anime_cash"):
+        raise HTTPException(400, "kind must be 'points' or 'anime_cash'")
+    limit = max(1, min(limit, 500))
+    txs = await db.points_transactions.find(
+        {"user_id": user["user_id"], "kind": kind},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(limit)
+    # Tag each row with a source bucket for the UI (no stored state needed)
+    _BUCKETS = (
+        ("visit:", "visit"),
+        ("daily_login:", "daily_login"),
+        ("asgaros_reply:", "forum_reply"),
+        ("spotlight:", "spotlight"),
+        ("article:", "article"),
+        ("theme_set", "theme_set"),
+        ("claim:", "claim"),
+        ("active_member:", "active_member"),
+        ("streak_1000:", "streak_1000"),
+        ("membership_cash:", "membership_cash"),
+    )
+    for tx in txs:
+        ref = tx.get("ref") or ""
+        tx["source"] = next((label for prefix, label in _BUCKETS if ref.startswith(prefix)), "other")
+    # Totals — helpful for the page header ("Earned all-time" / "Last 30 days")
+    now = now_utc()
+    cutoff = (now - timedelta(days=30)).isoformat()
+    all_time_in = sum(int(t["amount"]) for t in txs if int(t.get("amount", 0)) > 0)
+    all_time_out = sum(int(t["amount"]) for t in txs if int(t.get("amount", 0)) < 0)
+    last_30 = sum(int(t["amount"]) for t in txs if t.get("created_at", "") >= cutoff)
+    # Live balance (from MyCred when available)
+    bal = await mycred_balance(user.get("email", ""))
+    if bal.get("found"):
+        balance = bal.get("points", 0) if kind == "points" else bal.get("anime_cash", 0)
+    else:
+        balance = user.get("points" if kind == "points" else "anime_cash", 0)
+    return {
+        "kind": kind,
+        "balance": balance,
+        "synced_with_mycred": bool(bal.get("found")),
+        "transactions": txs,
+        "totals": {"all_time_in": all_time_in, "all_time_out": all_time_out, "last_30_days": last_30},
+    }
+
 @api.post("/points/daily-claim")
 async def daily_claim(user: dict = Depends(require_member)):
     today = now_utc().date().isoformat()

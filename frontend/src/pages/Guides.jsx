@@ -270,8 +270,9 @@ function ClaimModal({ open, section, item, onClose, onSubmitted }) {
   );
 }
 
-function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections, enableClaims, enableStreak }) {
+function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections, enableClaims, enableStreak, historyPath }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const isMember = !!user && (isAdmin || user.is_member);
   const [data, setData] = useState(null);
@@ -352,8 +353,14 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
           )}
         </div>
         {heroStat && (
-          <div className="bg-[var(--primary)] px-4 py-2 border-t-2 border-white/30 flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest opacity-90">{heroStat.label}</span>
+          <div
+            onClick={() => historyPath && navigate(historyPath)}
+            className="bg-[var(--primary)] px-4 py-2 border-t-2 border-white/30 flex items-center justify-between cursor-pointer active:opacity-90"
+            data-testid="guide-hero-stat"
+          >
+            <span className="text-[10px] font-black uppercase tracking-widest opacity-90">
+              {heroStat.label}{historyPath ? " · View history →" : ""}
+            </span>
             <span className="font-black text-xl">{heroStat.value}</span>
           </div>
         )}
@@ -453,6 +460,7 @@ export function PointsGuide() {
       heroStat={heroStat}
       enableClaims={true}
       enableStreak={true}
+      historyPath="/points/history"
     />
   );
 }
@@ -470,6 +478,7 @@ export function AnimeCashGuide() {
       heroStat={heroStat}
       fallbackSections={ANIME_CASH_FALLBACK}
       lockedBody="The Anime Cash page on rintaki.org is members-only. Here's the summary — we'll pull the live content as soon as the page is opened to the public."
+      historyPath="/anime-cash/history"
     />
   );
 }

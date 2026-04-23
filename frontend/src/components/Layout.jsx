@@ -56,7 +56,7 @@ export default function Layout({ children }) {
             {isMember && (
               <>
                 <button
-                  onClick={() => navigate("/points")}
+                  onClick={() => navigate("/points/history")}
                   className="flex items-center gap-1 bg-[var(--secondary)] border-2 border-black rounded-full px-2.5 py-1 shadow-[3px_3px_0_#111]"
                   data-testid="points-pill"
                 >
@@ -64,7 +64,7 @@ export default function Layout({ children }) {
                   <span className="font-black text-xs">{user.points ?? 0}</span>
                 </button>
                 <button
-                  onClick={() => navigate("/points")}
+                  onClick={() => navigate("/anime-cash/history")}
                   className="flex items-center gap-1 bg-[var(--accent)] border-2 border-black rounded-full px-2.5 py-1 shadow-[3px_3px_0_#111]"
                   data-testid="cash-pill"
                 >

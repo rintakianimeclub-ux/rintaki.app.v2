@@ -13,6 +13,7 @@ import Events from "@/pages/Events";
 import EventDetail from "@/pages/EventDetail";
 import { TicketSuccess, MyTickets } from "@/pages/Tickets";
 import Points from "@/pages/Points";
+import PointsHistory from "@/pages/PointsHistory";
 import Newsletters from "@/pages/Newsletters";
 import Videos from "@/pages/Videos";
 import Messages from "@/pages/Messages";
@@ -94,6 +95,8 @@ function RouterShell() {
       <Route path="/tickets" element={<Protected><MyTickets /></Protected>} />
       <Route path="/tickets/success" element={<Protected><TicketSuccess /></Protected>} />
       <Route path="/points" element={<Protected><MemberOnly><Points /></MemberOnly></Protected>} />
+      <Route path="/points/history" element={<Protected><MemberOnly><PointsHistory kind="points" /></MemberOnly></Protected>} />
+      <Route path="/anime-cash/history" element={<Protected><MemberOnly><PointsHistory kind="anime_cash" /></MemberOnly></Protected>} />
       <Route path="/newsletters" element={<Public><Newsletters /></Public>} />
       <Route path="/videos" element={<Public><Videos /></Public>} />
       <Route path="/messages" element={<Protected><MemberOnly><Messages /></MemberOnly></Protected>} />

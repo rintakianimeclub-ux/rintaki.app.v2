@@ -471,6 +471,10 @@ async def me(user: dict = Depends(get_current_user)):
             await _maybe_award_active_member(user)
         except Exception as e:
             logger.warning(f"active member award failed: {e}")
+        try:
+            await _maybe_award_membership_cash(user)
+        except Exception as e:
+            logger.warning(f"membership cash award failed: {e}")
         # Refresh the user doc so the enriched response reflects the new point totals
         user = await db.users.find_one({"user_id": user["user_id"]}) or user
     return await public_user_enriched(user)
@@ -2185,6 +2189,143 @@ async def _maybe_award_1000_streak(user_id: str) -> Optional[int]:
     except Exception:
         pass
     return STREAK_1000_AWARD
+
+
+@api.get("/guides/points/streak-progress")
+async def streak_1000_progress(user: dict = Depends(require_member)):
+    """Return the user's live progress toward the rolling 1,000-points-in-30-days bonus.
+
+    Response:
+      total_30d            — points earned in the last 30 days (excl. prior streak bonuses)
+      threshold            — 1000
+      award                — 200 (pts that fire when threshold is hit)
+      window_days          — 30
+      days_left            — remaining days in the current window until earliest point ages out
+                             (for display like "12 days left")
+      cooldown_days_left   — 0 unless a streak bonus was earned recently; then days until next one
+                             can fire (so the UI can show "cooldown: 14 days left")
+      earliest_at          — ISO timestamp of the oldest point in the window (or null if empty)
+    """
+    now = now_utc()
+    window_cutoff = (now - timedelta(days=STREAK_1000_WINDOW_DAYS)).isoformat()
+    cooldown_cutoff = (now - timedelta(days=STREAK_1000_COOLDOWN_DAYS)).isoformat()
+
+    total = 0
+    earliest = None
+    async for tx in db.points_transactions.find(
+        {
+            "user_id": user["user_id"],
+            "kind": "points",
+            "amount": {"$gt": 0},
+            "created_at": {"$gte": window_cutoff},
+            "ref": {"$not": {"$regex": "^streak_1000:"}},
+        },
+        {"_id": 0, "amount": 1, "created_at": 1},
+    ):
+        total += int(tx.get("amount") or 0)
+        ts = tx.get("created_at")
+        if ts and (earliest is None or ts < earliest):
+            earliest = ts
+
+    # Subtract streak-bonus awards that fall inside the window (safety mirror of _maybe_award_1000_streak)
+    async for tx in db.points_transactions.find(
+        {"user_id": user["user_id"], "ref": {"$regex": "^streak_1000:"}, "created_at": {"$gte": window_cutoff}},
+        {"_id": 0, "amount": 1},
+    ):
+        total -= int(tx.get("amount") or 0)
+    total = max(0, total)
+
+    # Cooldown: active if a streak bonus fired in the past 30 days
+    recent_bonus = await db.points_transactions.find_one(
+        {"user_id": user["user_id"], "ref": {"$regex": "^streak_1000:"}, "created_at": {"$gte": cooldown_cutoff}},
+        {"_id": 0, "created_at": 1},
+    )
+    cooldown_days_left = 0
+    if recent_bonus and recent_bonus.get("created_at"):
+        try:
+            last_ts = datetime.fromisoformat(recent_bonus["created_at"].replace("Z", "+00:00"))
+            delta = STREAK_1000_COOLDOWN_DAYS - (now - last_ts).total_seconds() / 86400
+            cooldown_days_left = max(0, int(delta) + (1 if delta - int(delta) > 0 else 0))
+        except Exception:
+            cooldown_days_left = 0
+
+    # days_left: when the OLDEST point in the window will fall out (so the user knows how much time
+    # they have to keep stacking before their running total starts decaying).
+    days_left = STREAK_1000_WINDOW_DAYS
+    if earliest:
+        try:
+            earliest_ts = datetime.fromisoformat(earliest.replace("Z", "+00:00"))
+            delta = STREAK_1000_WINDOW_DAYS - (now - earliest_ts).total_seconds() / 86400
+            days_left = max(0, int(delta) + (1 if delta - int(delta) > 0 else 0))
+        except Exception:
+            days_left = STREAK_1000_WINDOW_DAYS
+
+    return {
+        "total_30d": total,
+        "threshold": STREAK_1000_THRESHOLD,
+        "award": STREAK_1000_AWARD,
+        "window_days": STREAK_1000_WINDOW_DAYS,
+        "days_left": days_left,
+        "cooldown_days_left": cooldown_days_left,
+        "earliest_at": earliest,
+    }
+
+
+# ----------------- Membership Anime Cash (monthly auto-award) -----------------
+# Values come straight from the rintaki.org Anime Cash page:
+#   Regular membership → $5 / month
+#   Premium membership → $10 / month
+# Level-name matching is case-insensitive and works on PMPro's display name (e.g. "PREMIUM (YEARLY)",
+# "REGULAR (MONTHLY)"). Levels that don't match return $0 and no award fires.
+MEMBERSHIP_CASH_RULES = [
+    (lambda name: "premium" in name, 10),
+    (lambda name: "regular" in name, 5),
+]
+
+def _monthly_cash_for_membership(membership_name: str) -> int:
+    n = (membership_name or "").lower()
+    for matcher, amount in MEMBERSHIP_CASH_RULES:
+        if matcher(n):
+            return amount
+    return 0
+
+async def _maybe_award_membership_cash(user: dict) -> Optional[int]:
+    """Grant the member's monthly Anime Cash based on their PMPro tier.
+
+    - First `/auth/me` call of a new month triggers the award (also catches members
+      who join mid-month — they get that month's cash on their next app open).
+    - Amount is derived live from the member's current PMPro level (fetched via MyCred sync).
+    - Idempotent via ref = `membership_cash:{user_id}:{YYYY-MM}`.
+    """
+    if not (user.get("role") == "admin" or user.get("is_member")):
+        return None
+    now = now_utc()
+    period = f"{now.year:04d}-{now.month:02d}"
+    ref = f"membership_cash:{user['user_id']}:{period}"
+    if await db.points_transactions.find_one({"ref": ref}):
+        return None
+    # Pull live membership from MyCred (public_user_enriched already does this elsewhere).
+    bal = await mycred_balance(user.get("email", ""))
+    membership_name = bal.get("membership_name") or user.get("membership_name") or ""
+    amount = _monthly_cash_for_membership(membership_name)
+    if amount <= 0:
+        return None
+    await add_anime_cash(
+        user["user_id"], amount,
+        f"{membership_name} monthly Anime Cash ({period})",
+        ref=ref,
+    )
+    try:
+        await push_notification(
+            user["user_id"],
+            f"+${amount} Anime Cash!",
+            f"Your {membership_name} monthly Anime Cash for {period}.",
+            "anime_cash",
+            "/dashboard/anime-cash-guide",
+        )
+    except Exception:
+        pass
+    return amount
 
 
 async def _maybe_award_active_member(user: dict) -> Optional[int]:

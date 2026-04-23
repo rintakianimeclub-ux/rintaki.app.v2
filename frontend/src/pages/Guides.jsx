@@ -62,9 +62,10 @@ function ModeBadge({ mode, claim }) {
   return null;
 }
 
-function ItemRow({ section, item, pill, claimByKey, onClaim }) {
+function ItemRow({ section, item, pill, claimByKey, onClaim, streakProgress }) {
   const claim = claimByKey?.[item.item_key];
   const canClaim = item.mode === "claim" && (!claim || claim.status === "rejected");
+  const isStreakItem = /1,?000\s*points/i.test(item.desc) && /30\s*days/i.test(item.desc);
   return (
     <div className="py-2 border-b border-dashed border-black/10 last:border-0" data-testid="guide-item">
       <div className="flex items-center gap-3">
@@ -74,6 +75,28 @@ function ItemRow({ section, item, pill, claimByKey, onClaim }) {
         <div className="text-sm flex-1 leading-snug">{item.desc}</div>
         <ModeBadge mode={item.mode} claim={claim} />
       </div>
+      {isStreakItem && streakProgress && (
+        <div className="mt-2 ml-[76px]" data-testid="streak-progress">
+          <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">
+            <span>{streakProgress.total_30d} / {streakProgress.threshold} pts</span>
+            {streakProgress.cooldown_days_left > 0 ? (
+              <span className="text-[var(--primary)]">Cooldown: {streakProgress.cooldown_days_left}d</span>
+            ) : streakProgress.total_30d >= streakProgress.threshold ? (
+              <span className="text-[var(--primary)]">Ready to unlock!</span>
+            ) : (
+              <span>{streakProgress.days_left}d window</span>
+            )}
+          </div>
+          <div className="h-2 bg-black/10 border-2 border-black rounded-full overflow-hidden mt-1">
+            <div
+              className="h-full bg-[var(--primary)] transition-[width] duration-300"
+              style={{
+                width: `${Math.min(100, Math.round((streakProgress.total_30d / streakProgress.threshold) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
       {canClaim && (
         <div className="flex justify-end mt-1">
           <button onClick={() => onClaim(section, item)}
@@ -87,7 +110,7 @@ function ItemRow({ section, item, pill, claimByKey, onClaim }) {
   );
 }
 
-function SectionCard({ section, claimByKey, onClaim }) {
+function SectionCard({ section, claimByKey, onClaim, streakProgress }) {
   const { icon: Icon, color, pill } = styleForSection(section.heading);
   return (
     <Card className={`${color} p-0 overflow-hidden`} data-testid={`guide-section-${section.heading.toLowerCase().replace(/\s+/g,"-")}`}>
@@ -109,7 +132,8 @@ function SectionCard({ section, claimByKey, onClaim }) {
         <div className="px-3 pb-3 pt-1 bg-white/80 text-black mt-3 border-t-2 border-black">
           {section.items.map((it, i) => (
             <ItemRow key={i} section={section} item={it} pill={pill}
-                     claimByKey={claimByKey} onClaim={onClaim} />
+                     claimByKey={claimByKey} onClaim={onClaim}
+                     streakProgress={streakProgress} />
           ))}
         </div>
       )}
@@ -246,7 +270,7 @@ function ClaimModal({ open, section, item, onClose, onSubmitted }) {
   );
 }
 
-function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections, enableClaims }) {
+function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroStat, lockedBody, fallbackSections, enableClaims, enableStreak }) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isMember = !!user && (isAdmin || user.is_member);
@@ -255,6 +279,7 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
   const [err, setErr] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [myClaims, setMyClaims] = useState([]);
+  const [streakProgress, setStreakProgress] = useState(null);
   const [claimModal, setClaimModal] = useState({ open: false, section: null, item: null });
 
   const load = async (refresh = false) => {
@@ -276,7 +301,14 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
       setMyClaims(d.claims || []);
     } catch { /* ignore */ }
   };
-  useEffect(() => { load(); loadClaims(); /* eslint-disable-next-line */ }, [endpoint]);
+  const loadStreak = async () => {
+    if (!enableStreak || !isMember) return;
+    try {
+      const { data: d } = await api.get("/guides/points/streak-progress");
+      setStreakProgress(d);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { load(); loadClaims(); loadStreak(); /* eslint-disable-next-line */ }, [endpoint]);
 
   // Latest claim per item_key (most recent wins)
   const claimByKey = React.useMemo(() => {
@@ -358,11 +390,11 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
               <p className="text-sm mt-1">{lockedBody || "The website requires a member login to view this page. Here's the in-app summary while we wait for admin to open it up."}</p>
             </Card>
           )}
-          {fallbackSections.map((s, i) => <SectionCard key={i} section={s} claimByKey={{}} onClaim={() => {}} />)}
+          {fallbackSections.map((s, i) => <SectionCard key={i} section={s} claimByKey={{}} onClaim={() => {}} streakProgress={null} />)}
         </>
       ) : (
         <>
-          {sections.map((s, i) => <SectionCard key={i} section={s} claimByKey={claimByKey} onClaim={openClaim} />)}
+          {sections.map((s, i) => <SectionCard key={i} section={s} claimByKey={claimByKey} onClaim={openClaim} streakProgress={streakProgress} />)}
         </>
       )}
 
@@ -394,9 +426,8 @@ const ANIME_CASH_FALLBACK = [
     level: 3,
     intro: "",
     items: [
-      { amount: "$5", unit: "/ mo", desc: "Regular membership" },
-      { amount: "$10", unit: "/ mo", desc: "Premium membership" },
-      { amount: "100", unit: "cash", desc: "Complete a theme set" },
+      { amount: "$5", unit: "/ mo", desc: "Regular membership", mode: "auto", item_key: "cash_regular" },
+      { amount: "$10", unit: "/ mo", desc: "Premium membership", mode: "auto", item_key: "cash_premium" },
       { amount: "25", unit: "cash", desc: "Article of the month" },
       { amount: "Varies", unit: "", desc: "Giveaway & contest bonuses" },
     ],
@@ -421,6 +452,7 @@ export function PointsGuide() {
       source_url="https://rintaki.org/points/"
       heroStat={heroStat}
       enableClaims={true}
+      enableStreak={true}
     />
   );
 }

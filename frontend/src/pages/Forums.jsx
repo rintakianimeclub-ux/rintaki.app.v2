@@ -2,124 +2,109 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Card, Sticker, Button, Input, Textarea, EmptyState } from "@/components/ui-brutal";
-import { ChatsCircle, Plus, X, Heart, Lock } from "@phosphor-icons/react";
+import { Card, Sticker, Button, EmptyState } from "@/components/ui-brutal";
+import { ChatsCircle, ArrowSquareOut, Plus, CaretRight, ArrowsClockwise, Lock } from "@phosphor-icons/react";
 
-const CATEGORIES = ["General", "Anime", "Manga", "Events", "Cosplay", "Trading Cards", "Announcements"];
+const ASGAROS_ADMIN = "https://rintaki.org/wp-admin/admin.php?page=asgarosforum-overview";
 
 export default function Forums() {
   const { user } = useAuth();
-  const isMember = !!user && (user.role === "admin" || user.is_member);
-  const [threads, setThreads] = useState([]);
-  const [filter, setFilter] = useState("");
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", body: "", category: "General" });
-  const [posting, setPosting] = useState(false);
+  const isAdmin = user?.role === "admin";
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = async () => {
-    const { data } = await api.get("/forums/threads", { params: filter ? { category: filter } : {} });
-    setThreads(data.threads || []);
-  };
-
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setPosting(true);
+  const load = async (refresh = false) => {
+    setRefreshing(refresh);
+    setErr("");
     try {
-      await api.post("/forums/threads", form);
-      setOpen(false);
-      setForm({ title: "", body: "", category: "General" });
-      load();
-    } catch (e) { /* show toast ideally */ }
-    setPosting(false);
+      const { data } = await api.get("/forums/asgaros/overview", { params: refresh ? { refresh: 1 } : {} });
+      setData(data);
+    } catch (e) {
+      setErr(e.response?.data?.detail || "Couldn't load the forum.");
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  useEffect(() => { load(false); }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="font-black text-4xl">Forums</h1>
-          <p className="text-[var(--muted-fg)]">
-            {isMember ? "Threads, debates, meetup plans. +5 pts per thread." : "Browse our discussions — members can post & reply."}
-          </p>
+          <p className="text-[var(--muted-fg)] text-sm">Live from rintaki.org · read-only in the app</p>
         </div>
-        {isMember ? (
-          <Button onClick={() => setOpen(true)} data-testid="new-thread-btn">
-            <Plus size={16} weight="bold" /> New thread
-          </Button>
-        ) : (
-          <Link to="/join" data-testid="forum-join-btn">
-            <Button variant="dark">
-              <Lock size={14} weight="bold" /> Join to post
-            </Button>
-          </Link>
-        )}
+        <div className="flex gap-2">
+          <button onClick={() => load(true)} disabled={refreshing} data-testid="forum-refresh"
+                  className="w-9 h-9 bg-white border-2 border-black rounded-full flex items-center justify-center brutal-btn" aria-label="Refresh">
+            <ArrowsClockwise size={14} weight="bold" className={refreshing ? "animate-spin" : ""} />
+          </button>
+          {isAdmin && (
+            <a href={ASGAROS_ADMIN} target="_blank" rel="noreferrer" data-testid="admin-manage-forum">
+              <Button variant="dark"><Plus size={14} weight="bold" /> Manage on rintaki.org <ArrowSquareOut size={12} weight="bold" /></Button>
+            </a>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={() => setFilter("")} data-testid="filter-all"
-                className={`sticker ${!filter ? "bg-black text-white" : "bg-white"}`}>All</button>
-        {CATEGORIES.map((c) => (
-          <button key={c} onClick={() => setFilter(c)} data-testid={`filter-${c}`}
-                  className={`sticker ${filter === c ? "bg-[var(--primary)] text-white" : "bg-white"}`}>{c}</button>
-        ))}
-      </div>
+      {/* Public read-only note (hide for admin since they see the manage button) */}
+      {!isAdmin && (
+        <Card className="bg-[var(--secondary)] flex items-center gap-2 text-xs font-bold">
+          <Lock size={14} weight="fill" /> Browse only — only admins create categories and threads (on rintaki.org).
+        </Card>
+      )}
 
-      {threads.length === 0 ? (
-        <EmptyState title="No threads yet" body="Be the first to start a conversation." icon={ChatsCircle} />
+      {err && (
+        <Card className="bg-[var(--primary)] text-white">
+          <div className="font-black text-sm">{err}</div>
+          <button onClick={() => load(true)} className="underline font-bold text-xs mt-1">Try again</button>
+        </Card>
+      )}
+
+      {!data && !err && <div className="text-sm text-[var(--muted-fg)]">Loading forum…</div>}
+
+      {data?.categories?.length === 0 ? (
+        <EmptyState title="No forums yet" icon={ChatsCircle} body={isAdmin ? "Create a category on rintaki.org to get started." : "Check back soon."} />
       ) : (
-        <div className="space-y-3 stagger">
-          {threads.map((t) => (
-            <Link key={t.thread_id} to={`/forums/${t.thread_id}`} data-testid={`thread-${t.thread_id}`}>
-              <Card className="hover:bg-[var(--muted)]">
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <Sticker color="primary">{t.category}</Sticker>
-                  {t.pinned && <Sticker color="secondary">📌 Pinned</Sticker>}
-                </div>
-                <h3 className="font-black text-xl leading-snug">{t.title}</h3>
-                <p className="text-sm text-[var(--muted-fg)] line-clamp-2 mt-1">{t.body}</p>
-                <div className="flex items-center gap-4 mt-3 text-xs font-bold uppercase tracking-widest text-[var(--muted-fg)]">
-                  <span>{t.author_name}</span>
-                  <span className="flex items-center gap-1"><ChatsCircle size={14} weight="bold" /> {t.reply_count}</span>
-                  <span className="flex items-center gap-1"><Heart size={14} weight="bold" /> {t.likes?.length || 0}</span>
-                  <span className="ml-auto">{new Date(t.created_at).toLocaleDateString()}</span>
-                </div>
-              </Card>
-            </Link>
+        <div className="space-y-5">
+          {data?.categories?.map((cat) => (
+            <section key={cat.name} data-testid={`cat-${cat.name.replace(/\s+/g, '-')}`}>
+              <div className="sticky top-[64px] z-10 -mx-1 px-1 bg-[var(--bg)]/95 backdrop-blur py-1">
+                <span className="inline-block bg-black text-white text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border-2 border-black">
+                  {cat.name}
+                </span>
+              </div>
+              <div className="space-y-2 mt-2">
+                {cat.forums.map((f) => (
+                  <Link key={f.slug || f.url} to={`/forums/${f.slug}`} data-testid={`forum-${f.slug}`}>
+                    <Card className="p-3 flex items-center gap-3">
+                      <div className="w-10 h-10 bg-[var(--primary)] text-white border-2 border-black rounded-full flex items-center justify-center flex-shrink-0">
+                        <ChatsCircle size={18} weight="fill" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-black text-base leading-tight">{f.title}</div>
+                        {f.description && <div className="text-xs text-[var(--muted-fg)] line-clamp-2">{f.description}</div>}
+                        <div className="flex gap-2 mt-1">
+                          {f.stats && <Sticker color="white">{f.stats}</Sticker>}
+                          {f.last_post?.when && <Sticker color="accent">Last: {f.last_post.when}</Sticker>}
+                        </div>
+                      </div>
+                      <CaretRight size={18} weight="bold" />
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setOpen(false)}>
-          <form onClick={(e) => e.stopPropagation()} onSubmit={submit}
-                className="bg-white border-2 border-black rounded-2xl w-full max-w-lg p-6 shadow-[8px_8px_0_#111]" data-testid="new-thread-form">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-black text-2xl">Start a thread</h2>
-              <button type="button" onClick={() => setOpen(false)} className="w-8 h-8 border-2 border-black rounded-full flex items-center justify-center">
-                <X size={16} weight="bold" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <Input placeholder="Thread title" required value={form.title}
-                     data-testid="thread-title-input"
-                     onChange={(e) => setForm({ ...form, title: e.target.value })} />
-              <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
-                      data-testid="thread-category-select"
-                      className="w-full rounded-lg border-2 border-black px-4 py-3 bg-white font-medium shadow-[3px_3px_0_#111]">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <Textarea rows={5} placeholder="What's on your mind?" required value={form.body}
-                        data-testid="thread-body-input"
-                        onChange={(e) => setForm({ ...form, body: e.target.value })} />
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={posting} data-testid="thread-submit">{posting ? "Posting..." : "Post +5 pts"}</Button>
-            </div>
-          </form>
-        </div>
+      {data?.source_url && (
+        <p className="text-center text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">
+          Synced from <a href={data.source_url} target="_blank" rel="noreferrer" className="underline">rintaki.org/notice-board</a>
+        </p>
       )}
     </div>
   );

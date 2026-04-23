@@ -521,91 +521,190 @@ async def upload_profile_image(data: ImageUpload, user: dict = Depends(get_curre
 
 
 # ----------------- Rintaki Feed -----------------
+ASGAROS_BASE = "https://rintaki.org/notice-board"
+_asg_cache: dict = {}
+ASG_TTL = 300  # 5 min
+
+def _asg_absolutize(href: str) -> str:
+    if not href:
+        return ""
+    if href.startswith("http"):
+        return href
+    if href.startswith("/"):
+        return f"https://rintaki.org{href}"
+    return f"{ASGAROS_BASE}/{href.lstrip('/')}"
+
+def _asg_slug(url: str, kind: str) -> str:
+    import re
+    m = re.search(rf"/{kind}/([^/?#]+)", url or "")
+    return m.group(1) if m else ""
+
+async def _asg_fetch(url: str) -> str:
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 RintakiApp/1.0"}) as hc:
+        r = await hc.get(url)
+        r.raise_for_status()
+        return r.text
+
+@api.get("/forums/asgaros/overview")
+async def asgaros_overview(refresh: bool = False):
+    """Scrape the Asgaros forum overview on rintaki.org/notice-board/ into categories → forums."""
+    from bs4 import BeautifulSoup
+    now_ts = _time.time()
+    if not refresh and "overview" in _asg_cache:
+        ts, data = _asg_cache["overview"]
+        if now_ts - ts < ASG_TTL:
+            return {**data, "source": "cache"}
+    try:
+        html = await _asg_fetch(f"{ASGAROS_BASE}/")
+    except Exception as e:
+        raise HTTPException(502, f"Could not fetch forum: {e}")
+    soup = BeautifulSoup(html, "lxml")
+    wrapper = soup.select_one("#af-wrapper") or soup
+    categories = []
+    current = None
+    for el in wrapper.find_all(["div"], recursive=True):
+        cls = set(el.get("class") or [])
+        if "title-element" in cls:
+            # Skip the "Last post" helper text
+            last = el.select_one(".last-post-headline")
+            if last:
+                last.extract()
+            name = el.get_text(" ", strip=True)
+            if name:
+                current = {"name": name, "forums": []}
+                categories.append(current)
+        elif "forum" in cls and "content-element" in cls and current is not None:
+            a = el.select_one("a.forum-title")
+            desc_el = el.select_one("small.forum-description")
+            stats_el = el.select_one("small.forum-stats")
+            last_el = el.select_one("small.forum-lastpost-small")
+            last = None
+            if last_el:
+                topic_a = last_el.select_one("a[href*='/topic/']")
+                author_a = last_el.select_one("a.profile-link")
+                time_a = last_el.select_one("a:not(.profile-link)")
+                last = {
+                    "topic_title": topic_a.get_text(strip=True) if topic_a else "",
+                    "topic_url": _asg_absolutize(topic_a.get("href")) if topic_a else "",
+                    "author": author_a.get_text(strip=True) if author_a else "",
+                    "when": time_a.get_text(strip=True) if time_a else "",
+                }
+            url = _asg_absolutize(a.get("href")) if a else ""
+            current["forums"].append({
+                "title": a.get_text(strip=True) if a else "(untitled)",
+                "slug": _asg_slug(url, "forum"),
+                "url": url,
+                "description": desc_el.get_text(" ", strip=True) if desc_el else "",
+                "stats": stats_el.get_text(" ", strip=True) if stats_el else "",
+                "last_post": last,
+            })
+    data = {"categories": [c for c in categories if c.get("forums")], "source_url": f"{ASGAROS_BASE}/"}
+    _asg_cache["overview"] = (now_ts, data)
+    return {**data, "source": "live"}
+
+@api.get("/forums/asgaros/forum/{slug}")
+async def asgaros_forum_detail(slug: str, refresh: bool = False):
+    """Topics inside a specific Asgaros forum."""
+    from bs4 import BeautifulSoup
+    cache_key = f"forum:{slug}"
+    now_ts = _time.time()
+    if not refresh and cache_key in _asg_cache:
+        ts, data = _asg_cache[cache_key]
+        if now_ts - ts < ASG_TTL:
+            return {**data, "source": "cache"}
+    try:
+        html = await _asg_fetch(f"{ASGAROS_BASE}/forum/{slug}/")
+    except Exception as e:
+        raise HTTPException(404, f"Forum not found: {e}")
+    soup = BeautifulSoup(html, "lxml")
+    title_el = soup.select_one("h1.main-title")
+    title = title_el.get_text(strip=True) if title_el else slug.replace("-", " ").title()
+    topics = []
+    for t in soup.select(".content-element.topic"):
+        a = t.select_one(".topic-name > a[href*='/topic/']")
+        author_a = t.select_one(".topic-name small a.profile-link")
+        stats = t.select_one(".topic-stats")
+        last_post = t.select_one(".topic-lastpost-small")
+        url = _asg_absolutize(a.get("href")) if a else ""
+        topics.append({
+            "title": a.get_text(strip=True) if a else "(untitled)",
+            "url": url,
+            "slug": _asg_slug(url, "topic"),
+            "author": author_a.get_text(strip=True) if author_a else "",
+            "stats": stats.get_text(" ", strip=True) if stats else "",
+            "last_post": last_post.get_text(" ", strip=True) if last_post else "",
+            "is_sticky": "topic-sticky" in (t.get("class") or []),
+        })
+    data = {"forum": {"title": title, "slug": slug, "url": f"{ASGAROS_BASE}/forum/{slug}/"}, "topics": topics}
+    _asg_cache[cache_key] = (now_ts, data)
+    return {**data, "source": "live"}
+
+@api.get("/forums/asgaros/topic/{slug}")
+async def asgaros_topic_detail(slug: str, refresh: bool = False):
+    """Posts inside a specific Asgaros topic."""
+    from bs4 import BeautifulSoup
+    cache_key = f"topic:{slug}"
+    now_ts = _time.time()
+    if not refresh and cache_key in _asg_cache:
+        ts, data = _asg_cache[cache_key]
+        if now_ts - ts < ASG_TTL:
+            return {**data, "source": "cache"}
+    try:
+        html = await _asg_fetch(f"{ASGAROS_BASE}/topic/{slug}/")
+    except Exception as e:
+        raise HTTPException(404, f"Topic not found: {e}")
+    soup = BeautifulSoup(html, "lxml")
+    title_el = soup.select_one("h1.main-title")
+    title = title_el.get_text(strip=True) if title_el else slug.replace("-", " ").title()
+    # breadcrumb can tell us parent forum
+    crumb = soup.select("#af-wrapper a[href*='/forum/']")
+    parent_forum = None
+    if crumb:
+        pf_url = _asg_absolutize(crumb[-1].get("href"))
+        parent_forum = {"title": crumb[-1].get_text(strip=True), "slug": _asg_slug(pf_url, "forum"), "url": pf_url}
+    posts = []
+    for i, p in enumerate(soup.select(".post-element")):
+        author_el = p.select_one(".post-author-block-name a, .post-author-block-name")
+        avatar_el = p.select_one(".post-author img.avatar")
+        body_el = p.select_one(".post-message")
+        date_el = p.select_one(".forum-post-date")
+        reactions_el = p.select_one(".post-reactions-summary")
+        # Extract clean HTML from body (keep <p>, <br>, <a>)
+        body_html = ""
+        if body_el:
+            # Strip Asgaros quote containers to plain markup
+            for tag in body_el.find_all(["script", "style"]):
+                tag.decompose()
+            body_html = "".join(str(c) for c in body_el.contents)
+        posts.append({
+            "number": i + 1,
+            "author": author_el.get_text(strip=True) if author_el else "",
+            "avatar": avatar_el.get("src") if avatar_el else None,
+            "date": date_el.get_text(" ", strip=True) if date_el else "",
+            "body_html": body_html,
+            "body_text": body_el.get_text(" ", strip=True) if body_el else "",
+            "reactions": reactions_el.get_text(" ", strip=True) if reactions_el else "",
+        })
+    data = {
+        "topic": {"title": title, "slug": slug, "url": f"{ASGAROS_BASE}/topic/{slug}/"},
+        "parent_forum": parent_forum,
+        "posts": posts,
+    }
+    _asg_cache[cache_key] = (now_ts, data)
+    return {**data, "source": "live"}
+
+# Keep the legacy /rintaki/forum endpoint (thin shim calling the new overview)
 @api.get("/rintaki/forum")
 async def rintaki_forum():
-    """Scrape the wpForo notice-board from rintaki.org into structured data."""
-    from bs4 import BeautifulSoup
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as hc:
-            r = await hc.get(
-                "https://rintaki.org/notice-board/",
-                headers={"User-Agent": "Mozilla/5.0 RintakiApp/1.0"},
-            )
-            if r.status_code != 200:
-                return {"groups": [], "stats": {}}
-            html = r.text
-        soup = BeautifulSoup(html, "lxml")
-
+        data = await asgaros_overview()
+        # Flatten to old shape for back-compat
         groups = []
-        # wpForo typically uses .wpforo-forum / .wpforo-subforum / tr.wpforo-forum-row
-        # Fall back to any anchor to /notice-board/forum/...
-        forum_links = soup.select("a[href*='/notice-board/forum/']")
-        seen = set()
-        for a in forum_links:
-            href = a.get("href", "")
-            title = a.get_text(strip=True)
-            if not title or href in seen:
-                continue
-            seen.add(href)
-            desc = ""
-            last_post = None
-            # Climb to the enclosing row
-            row = a
-            for _ in range(5):
-                row = row.parent
-                if not row:
-                    break
-                cls = " ".join(row.get("class", []) if hasattr(row, "get") else [])
-                if "wpforo-forum" in cls or row.name in ("tr",):
-                    break
-            if row:
-                desc_el = row.find(class_=lambda c: c and "forum-description" in c)
-                if desc_el:
-                    desc = desc_el.get_text(" ", strip=True)
-                last_el = row.find(class_=lambda c: c and "last-post" in c)
-                if last_el:
-                    last_a = last_el.find("a", href=lambda h: h and "/topic/" in h)
-                    if last_a:
-                        last_post = {
-                            "title": last_a.get_text(strip=True),
-                            "url": last_a.get("href"),
-                        }
-            # As a last resort, clean the text around the link
-            if not desc:
-                parent_text = a.parent.get_text(" ", strip=True) if a.parent else ""
-                # strip the title + common wpForo words
-                desc_try = parent_text.replace(title, "", 1).strip()
-                for junk in ["Added to cart", "Last post", "Close cart", "Your Cart Is Empty"]:
-                    desc_try = desc_try.replace(junk, "")
-                desc = desc_try.strip().split("  ")[0][:180]
-            groups.append({"title": title, "url": href, "description": desc, "last_post": last_post})
-
-        topics = []
-        seen_t = set()
-        for a in soup.select("a[href*='/notice-board/topic/']"):
-            href = a.get("href", "").split("#")[0]
-            title = a.get_text(strip=True)
-            if not title or href in seen_t:
-                continue
-            seen_t.add(href)
-            topics.append({"title": title, "url": a.get("href")})
-
-        stats = {}
-        for label in ("Topics", "Posts", "Views", "Users", "Online"):
-            el = soup.find(string=lambda s: s and s.strip() == label)
-            if el:
-                num_el = el.find_previous(string=lambda s: s and s.strip().isdigit())
-                if num_el:
-                    stats[label.lower()] = int(num_el.strip())
-
-        return {
-            "source_url": "https://rintaki.org/notice-board/",
-            "groups": groups[:50],
-            "topics": topics[:50],
-            "stats": stats,
-        }
-    except Exception as e:
-        logger.warning(f"rintaki forum scrape error: {e}")
+        for cat in data.get("categories", []):
+            for f in cat.get("forums", []):
+                groups.append({"title": f["title"], "url": f["url"], "description": f["description"], "last_post": f.get("last_post")})
+        return {"source_url": data.get("source_url"), "groups": groups[:50], "topics": [], "stats": {}}
+    except Exception:
         return {"groups": [], "topics": [], "stats": {}}
 
 @api.get("/rintaki/feed")

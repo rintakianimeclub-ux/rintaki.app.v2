@@ -5,12 +5,17 @@
 @tailwind utilities;
 
 :root {
+  /* Palette sourced from the RACS logo */
   --bg: #FFFDF9;
   --fg: #0F0F0F;
-  --primary: #F94E41;
+  --primary: #E40000;           /* logo hair red */
   --primary-fg: #FFFFFF;
-  --secondary: #FFD166;
-  --accent: #4ECDC4;
+  --secondary: #FFD166;         /* gold — Anime Cash identity */
+  --secondary-fg: #0F0F0F;
+  --accent: #39B5E3;            /* logo kimono sky-blue */
+  --accent-fg: #0F0F0F;
+  --purple: #4B2E78;            /* logo deep purple accent (use with white text) */
+  --purple-fg: #FFFFFF;
   --muted: #F0EBE1;
   --muted-fg: #666666;
   --border: #111111;

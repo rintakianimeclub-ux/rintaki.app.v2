@@ -74,6 +74,7 @@ def public_user(u: dict) -> dict:
         "email": u["email"],
         "name": u.get("name", ""),
         "picture": u.get("picture"),
+        "banner_image": u.get("banner_image"),
         "role": u.get("role", "member"),
         "points": u.get("points", 0),
         "anime_cash": u.get("anime_cash", 0),
@@ -313,6 +314,7 @@ class ProfileUpdate(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     picture: Optional[str] = None
+    banner_image: Optional[str] = None
 
 # ----------------- Startup -----------------
 @app.on_event("startup")
@@ -351,107 +353,8 @@ async def startup():
             await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}})
             logger.info("Updated admin password")
 
-    # Seed a couple demo events & a welcome thread if empty
-    if await db.events.count_documents({}) == 0:
-        await db.events.insert_many([
-            {
-                "event_id": f"ev_{uuid.uuid4().hex[:10]}",
-                "title": "Anime MKE 2026 Meetup",
-                "description": "Join the Rintaki crew at Anime Milwaukee for panels, cosplay, and trading card drops.",
-                "location": "Wisconsin Center, Milwaukee",
-                "starts_at": iso(now_utc() + timedelta(days=20)),
-                "cover_image": "https://images.pexels.com/photos/30462154/pexels-photo-30462154.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-                "created_at": iso(now_utc()),
-            },
-            {
-                "event_id": f"ev_{uuid.uuid4().hex[:10]}",
-                "title": "Otaku Hangout Night",
-                "description": "Casual club meetup — watch parties, manga swap, snacks.",
-                "location": "Rintaki HQ Lounge",
-                "starts_at": iso(now_utc() + timedelta(days=7)),
-                "cover_image": "https://images.unsplash.com/photo-1697541986349-08125ac922a1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxyZXRybyUyMGphcGFuZXNlJTIwYWVzdGhldGljfGVufDB8fHx8MTc3NjgwNjI0Mnww&ixlib=rb-4.1.0&q=85",
-                "created_at": iso(now_utc()),
-            },
-        ])
-
-    if await db.newsletters.count_documents({}) == 0:
-        await db.newsletters.insert_one({
-            "newsletter_id": f"nl_{uuid.uuid4().hex[:10]}",
-            "title": "Otaku World — Vol. 5, Issue 1",
-            "summary": "Fresh interviews, trading card drops, and your Points highlights.",
-            "content": "Welcome back, otaku family! This month we're featuring interviews with Karen Sakurai & Kana Ueda, plus the full trading card collection reveal.",
-            "cover_image": "https://images.pexels.com/photos/31369734/pexels-photo-31369734.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-            "author": "Rintaki Admin",
-            "created_at": iso(now_utc()),
-        })
-
-    if await db.forum_threads.count_documents({}) == 0:
-        admin = await db.users.find_one({"email": admin_email})
-        if admin:
-            await db.forum_threads.insert_one({
-                "thread_id": f"th_{uuid.uuid4().hex[:10]}",
-                "title": "Welcome to the Rintaki Forums!",
-                "body": "Introduce yourself, share your favorite anime & grab 10 Points for your first post.",
-                "category": "Announcements",
-                "author_id": admin["user_id"],
-                "author_name": admin["name"],
-                "likes": [],
-                "reply_count": 0,
-                "pinned": True,
-                "created_at": iso(now_utc()),
-            })
-
-    # Seed a starter TCG collection + cards
-    if await db.tcg_collections.count_documents({}) == 0:
-        col_id = f"col_{uuid.uuid4().hex[:10]}"
-        await db.tcg_collections.insert_one({
-            "collection_id": col_id,
-            "name": "Fashionista 2026",
-            "description": "Rintaki's 2026 Fashionista trading card theme set.",
-            "cover_image": "https://rintaki.org/wp-content/uploads/2026/04/ChatGPT-Image-Apr-3-2026-04_17_30-PM-150x150.png",
-            "created_at": iso(now_utc()),
-        })
-        sample_cards = [
-            ("001", "Rin", "Legendary", "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=400"),
-            ("002", "Aiko", "Rare", "https://images.unsplash.com/photo-1578632749014-ca77efd052eb?w=400"),
-            ("003", "Kenji", "Rare", "https://images.unsplash.com/photo-1606036525011-6f86a18d70f9?w=400"),
-            ("004", "Yuki", "Common", "https://images.unsplash.com/photo-1611605698335-8b1569810432?w=400"),
-            ("005", "Hana", "Common", "https://images.unsplash.com/photo-1580477667995-2b94f01c9516?w=400"),
-            ("006", "Daichi", "Common", "https://images.unsplash.com/photo-1541562232579-512a21360020?w=400"),
-        ]
-        for num, name, rarity, img in sample_cards:
-            await db.tcg_cards.insert_one({
-                "card_id": f"card_{uuid.uuid4().hex[:10]}",
-                "collection_id": col_id,
-                "name": name,
-                "number": num,
-                "rarity": rarity,
-                "image_url": img,
-                "created_at": iso(now_utc()),
-            })
-
-    if await db.magazines.count_documents({}) == 0:
-        await db.magazines.insert_one({
-            "magazine_id": f"mg_{uuid.uuid4().hex[:10]}",
-            "title": "Otaku World",
-            "issue": "Vol. 5, Issue 1 (2026)",
-            "description": "Our flagship magazine featuring interviews, reviews, and community highlights.",
-            "pdf_url": "https://rintaki.org/wp-content/uploads/2025/07/APRIL-2026.pdf",
-            "cover_image": "https://rintaki.org/wp-content/uploads/2025/07/APRIL-2026-pdf-233x300.jpg",
-            "created_at": iso(now_utc()),
-        })
-
-    if await db.giveaways.count_documents({}) == 0:
-        await db.giveaways.insert_one({
-            "giveaway_id": f"gv_{uuid.uuid4().hex[:10]}",
-            "title": "Monthly Anime Figure Giveaway",
-            "description": "Enter for a chance to win a limited edition anime figure. Members only!",
-            "prize_type": "anime_item",
-            "ends_at": iso(now_utc() + timedelta(days=30)),
-            "cover_image": "https://images.pexels.com/photos/31369734/pexels-photo-31369734.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-            "entries": [],
-            "created_at": iso(now_utc()),
-        })
+    # Demo seed data disabled — production app pulls real events from WP, real threads from wpForo,
+    # and real magazines from rintaki.org. Seed blocks were removed on 2026-04-22.
 
 # ----------------- Auth Endpoints -----------------
 @api.get("/")
@@ -594,6 +497,28 @@ async def get_user(user_id: str):
     if not u:
         raise HTTPException(404, "User not found")
     return await public_user_enriched(u)
+
+class ImageUpload(BaseModel):
+    field: str  # "picture" or "banner_image"
+    file_name: str = ""
+    mime: str = "image/jpeg"
+    data_b64: str  # base64-encoded image bytes (without the "data:" prefix)
+
+@api.post("/profile/upload-image")
+async def upload_profile_image(data: ImageUpload, user: dict = Depends(get_current_user)):
+    if data.field not in ("picture", "banner_image"):
+        raise HTTPException(400, "field must be 'picture' or 'banner_image'")
+    if not data.data_b64:
+        raise HTTPException(400, "empty payload")
+    # Guard: base64 payload should be < ~6 MB (decoded ~4.5 MB). Banners might be bigger — allow 10 MB.
+    max_b64_len = 14_000_000
+    if len(data.data_b64) > max_b64_len:
+        raise HTTPException(413, "Image too large. Max 10 MB.")
+    mime = data.mime if data.mime.startswith("image/") else "image/jpeg"
+    data_url = f"data:{mime};base64,{data.data_b64}"
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {data.field: data_url}})
+    return {"ok": True, "url": data_url}
+
 
 # ----------------- Rintaki Feed -----------------
 @api.get("/rintaki/forum")

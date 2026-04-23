@@ -13,7 +13,10 @@ import {
   CurrencyCircleDollar,
   SignIn,
   ChatCircleDots,
+  Heart,
 } from "@phosphor-icons/react";
+
+const DONATE_URL = "https://buy.stripe.com/28EaEX2AIbKz6Cl8E66EU00";
 
 const BASE_TABS = [
   { to: "/", label: "Home", icon: HouseSimple },
@@ -104,15 +107,21 @@ export default function Layout({ children }) {
               </>
             )}
 
-            {/* Anonymous: sign in CTA */}
+            {/* Anonymous: donate + sign in CTAs */}
             {!user && (
-              <button
-                onClick={() => navigate("/login")}
-                className="flex items-center gap-1 bg-black text-white border-2 border-black rounded-full px-3 py-1.5 shadow-[3px_3px_0_#111] font-black text-xs uppercase tracking-widest"
-                data-testid="login-cta-top"
-              >
-                <SignIn size={12} weight="bold" /> Sign in
-              </button>
+              <>
+                <a href={DONATE_URL} target="_blank" rel="noreferrer" data-testid="donate-cta-top"
+                   className="flex items-center gap-1 bg-[var(--primary)] text-white border-2 border-black rounded-full px-3 py-1.5 shadow-[3px_3px_0_#111] font-black text-xs uppercase tracking-widest">
+                  <Heart size={12} weight="fill" /> Donate
+                </a>
+                <button
+                  onClick={() => navigate("/login")}
+                  className="flex items-center gap-1 bg-black text-white border-2 border-black rounded-full px-3 py-1.5 shadow-[3px_3px_0_#111] font-black text-xs uppercase tracking-widest"
+                  data-testid="login-cta-top"
+                >
+                  <SignIn size={12} weight="bold" /> Sign in
+                </button>
+              </>
             )}
           </div>
         </div>

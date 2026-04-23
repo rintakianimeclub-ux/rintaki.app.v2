@@ -162,6 +162,13 @@ async def add_points(user_id: str, amount: int, reason: str, ref: Optional[str] 
     u = await db.users.find_one({"user_id": user_id}, {"email": 1, "_id": 0})
     if u and u.get("email"):
         await mycred_adjust(u["email"], os.environ.get("RINTAKI_MYCRED_POINTS_TYPE", "mycred_default"), amount, reason, ref=ref)
+    # Check the rolling 1000-pts-in-30-days streak bonus.  Skip when THIS award was already
+    # the streak bonus itself, to prevent recursion.
+    if amount > 0 and ref != "streak_1000":
+        try:
+            await _maybe_award_1000_streak(user_id)
+        except Exception as e:
+            logger.warning(f"streak check failed: {e}")
 
 async def add_anime_cash(user_id: str, amount: int, reason: str, ref: Optional[str] = None):
     await db.users.update_one({"user_id": user_id}, {"$inc": {"anime_cash": amount}})
@@ -1905,7 +1912,10 @@ ADMIN_ONLY_ITEMS = {
     "awards::gift card giveaway",
     "awards::anime give away",
     "bonuses::additional points are at times awarded",   # "Varies" — admin discretion
-    "bonuses::reaching 1000 points",
+}
+# Items awarded by server-side background logic (not an admin or a claim)
+AUTO_STREAK_KEYS = {
+    "bonuses::reaching 1000 points",                     # +200 pts when a user earns 1000 in any 30-day window
 }
 
 def _classify_item(heading: str, desc: str) -> str:
@@ -1913,6 +1923,9 @@ def _classify_item(heading: str, desc: str) -> str:
     needle = f"{(heading or '').lower()}::{(desc or '').lower()}"
     for auto_key in AUTO_ITEMS:
         if auto_key in needle:
+            return "auto"
+    for streak_key in AUTO_STREAK_KEYS:
+        if streak_key in needle:
             return "auto"
     for admin_key in ADMIN_ONLY_ITEMS:
         if admin_key in needle:
@@ -2104,6 +2117,75 @@ async def track_daily_visit(user: dict = Depends(require_member)):
 # ----------------- Monthly Active-Member award (50 pts/mo if ≥ 400 pts earned last month) -----------------
 ACTIVE_MEMBER_THRESHOLD = 400  # ~1/3 of the max monthly manual+admin points ceiling
 ACTIVE_MEMBER_AWARD = 50
+STREAK_1000_THRESHOLD = 1000
+STREAK_1000_AWARD = 200
+STREAK_1000_WINDOW_DAYS = 30
+STREAK_1000_COOLDOWN_DAYS = 30  # must wait this long after an award before earning another
+
+async def _maybe_award_1000_streak(user_id: str) -> Optional[int]:
+    """Points-Guide bonus: +200 pts when a user earns ≥ 1000 pts in any rolling 30-day window.
+
+    Rules:
+      - Count only positive `kind=points` transactions in the last 30 days, excluding prior streak awards.
+      - After a streak bonus is granted, the next one cannot fire for 30 days (otherwise one +1000 burst
+        would trigger again on the next small award).
+      - Idempotency ref = `streak_1000:{user_id}:{YYYY-MM-DD earned on}`.
+    """
+    now = now_utc()
+    # Cooldown: skip if we already granted a streak bonus within the last 30 days.
+    cooldown_cutoff = (now - timedelta(days=STREAK_1000_COOLDOWN_DAYS)).isoformat()
+    recent_bonus = await db.points_transactions.find_one(
+        {"user_id": user_id, "ref": {"$regex": "^streak_1000:"}, "created_at": {"$gte": cooldown_cutoff}},
+        {"_id": 0, "ref": 1},
+    )
+    if recent_bonus:
+        return None
+    # Sum positive point awards in the last 30 days (excluding any prior streak bonuses)
+    window_cutoff = (now - timedelta(days=STREAK_1000_WINDOW_DAYS)).isoformat()
+    pipe = [
+        {"$match": {
+            "user_id": user_id,
+            "kind": "points",
+            "amount": {"$gt": 0},
+            "created_at": {"$gte": window_cutoff},
+        }},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+    ]
+    cursor = db.points_transactions.aggregate(pipe)
+    async for row in cursor:
+        total = int(row.get("total") or 0)
+        break
+    else:
+        total = 0
+    # Subtract any earlier streak bonuses that fell inside this window (double-safety)
+    async for tx in db.points_transactions.find(
+        {"user_id": user_id, "ref": {"$regex": "^streak_1000:"}, "created_at": {"$gte": window_cutoff}},
+        {"_id": 0, "amount": 1},
+    ):
+        total -= int(tx.get("amount") or 0)
+    if total < STREAK_1000_THRESHOLD:
+        return None
+    # Award
+    today = now.date().isoformat()
+    ref = f"streak_1000:{user_id}:{today}"
+    await add_points(
+        user_id,
+        STREAK_1000_AWARD,
+        f"1,000 points in 30 days bonus ({total} earned)",
+        ref=ref,
+    )
+    try:
+        await push_notification(
+            user_id,
+            "1,000-points streak unlocked!",
+            f"+{STREAK_1000_AWARD} pts for hitting {total} pts in the last 30 days.",
+            "points",
+            "/dashboard/points-guide",
+        )
+    except Exception:
+        pass
+    return STREAK_1000_AWARD
+
 
 async def _maybe_award_active_member(user: dict) -> Optional[int]:
     """If the user earned ≥ ACTIVE_MEMBER_THRESHOLD pts in the previous calendar month

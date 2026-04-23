@@ -148,7 +148,7 @@ export default function Home() {
         {feed.length === 0 ? (
           <Card><p className="text-sm text-[var(--muted-fg)]">No articles available.</p></Card>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-10">
             {feed.slice(0, 4).map((p) => (
               <a key={p.id} href={p.link} target="_blank" rel="noreferrer" data-testid={`feed-card-${p.id}`}>
                 <Card className="p-0 overflow-hidden">

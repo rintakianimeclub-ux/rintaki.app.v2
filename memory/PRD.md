@@ -84,6 +84,15 @@ See `/app/memory/test_credentials.md`.
 
 ## Changelog
 
+### 2026-04-24 — PWA installability verified in preview
+- Removed `NODE_ENV === 'production'` gate on service-worker registration in `/app/frontend/src/App.js` so the SW also registers in preview/dev (PWA audit tools + install prompts now detect it).
+- Verified in preview via Playwright:
+  - `<link rel="manifest">` resolves and `/manifest.json` returns 200 with `name=Rintaki Anime Club Society`, `display=standalone`, 4 icons, `start_url=/`.
+  - `navigator.serviceWorker.getRegistration()` returns an **activated** worker at scope `/` with `scriptURL=/service-worker.js`.
+  - `<meta name="theme-color">` = `#000000` and `<link rel="apple-touch-icon">` present.
+- P0 "PWA manifest + service worker (installable home-screen icon)" is now complete.
+
+
 ### 2026-04-22 — WooCommerce shop integration
 - **New `/shop` page** + 5th quick-tile on Home ("Shop") — public access.
 - Backend proxies WooCommerce Store API at `https://rintaki.org/wp-json/wc/store/v1`:

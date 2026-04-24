@@ -4,15 +4,16 @@ import { Card, Button, Input, EmptyState, Sticker } from "@/components/ui-brutal
 import {
   ShoppingBag, MagnifyingGlass, ArrowSquareOut, X, ShoppingCart,
 } from "@phosphor-icons/react";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 function decodeEntities(s = "") {
   const d = document.createElement("textarea");
-  d.innerHTML = s;
+  d.innerHTML = sanitizeHtml(s);
   return d.value;
 }
 function stripHtml(s = "") {
   const d = document.createElement("div");
-  d.innerHTML = s;
+  d.innerHTML = sanitizeHtml(s);
   return (d.textContent || d.innerText || "").replace(/\s+/g, " ").trim();
 }
 
@@ -170,7 +171,7 @@ function ProductDetail({ product, onClose }) {
             )}
             {full.description && (
               <div className="text-sm text-[var(--muted-fg)] leading-relaxed"
-                   dangerouslySetInnerHTML={{ __html: full.description }} />
+                   dangerouslySetInnerHTML={{ __html: sanitizeHtml(full.description) }} />
             )}
             {full.categories?.length > 0 && (
               <div className="flex gap-1 flex-wrap">

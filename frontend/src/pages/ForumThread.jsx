@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Avatar, EmptyState, Textarea } from "@/components/ui-brutal";
 import { ArrowLeft, ArrowSquareOut, ArrowsClockwise, ChatCircleDots, PaperPlaneTilt, Lock } from "@phosphor-icons/react";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 export default function ForumThread() {
   const { id } = useParams(); // treated as Asgaros slug (can be forum OR topic)
@@ -133,7 +134,7 @@ export default function ForumThread() {
                 <div className="text-[10px] uppercase tracking-widest font-bold text-[var(--muted-fg)]">#{p.number} · {p.date}</div>
               </div>
             </div>
-            <div className="p-3 prose-sm text-sm" dangerouslySetInnerHTML={{ __html: p.body_html || p.body_text }} />
+            <div className="p-3 prose-sm text-sm" dangerouslySetInnerHTML={{ __html: sanitizeHtml(p.body_html || p.body_text) }} />
             {p.reactions && (
               <div className="px-3 pb-3 text-[10px] font-bold uppercase tracking-widest text-[var(--muted-fg)]">{p.reactions}</div>
             )}

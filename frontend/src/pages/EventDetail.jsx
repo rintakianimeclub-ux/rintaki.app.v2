@@ -4,10 +4,12 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Button, Input, Sticker } from "@/components/ui-brutal";
 import { ArrowLeft, Calendar, MapPin, ArrowSquareOut, PencilSimple, Ticket, X } from "@phosphor-icons/react";
+import { sanitizeHtml } from "@/lib/sanitize";
 
+// Sanitize-then-strip so we never parse raw third-party HTML via innerHTML.
 function stripHtml(s = "") {
   const d = document.createElement("div");
-  d.innerHTML = s;
+  d.innerHTML = sanitizeHtml(s);
   return (d.textContent || d.innerText || "").replace(/\s+/g, " ").trim();
 }
 

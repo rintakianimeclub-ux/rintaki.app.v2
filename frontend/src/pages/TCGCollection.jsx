@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -18,7 +18,7 @@ export default function TCGCollection() {
   const [resyncing, setResyncing] = useState(false);
   const [resyncMsg, setResyncMsg] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [cols, data] = await Promise.all([
       api.get("/tcg/collections"),
       api.get(`/tcg/collections/${id}/cards`),
@@ -27,8 +27,8 @@ export default function TCGCollection() {
     setCollection(col);
     setCards(data.data.cards || []);
     setOwned(new Set(data.data.owned_ids || []));
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  }, [id]);
+  useEffect(() => { load(); }, [load]);
 
   const toggle = async (card) => {
     const { data } = await api.post(`/tcg/toggle-card/${card.card_id}`);

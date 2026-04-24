@@ -485,7 +485,7 @@ function Viewer({ viewer, setViewer }) {
       <div className="bg-black border-t-2 border-white/20 p-2 overflow-x-auto scrollbar-hide">
         <div className="flex gap-1">
           {gallery.images.map((im, i) => (
-            <button key={i} onClick={() => setViewer({ gallery, index: i })}
+            <button key={im.full || im.thumb || i} onClick={() => setViewer({ gallery, index: i })}
                     data-testid={`viewer-thumb-${i}`}
                     className={`flex-shrink-0 w-14 h-14 border-2 rounded-md overflow-hidden ${i === index ? "border-[var(--secondary)]" : "border-white/30"}`}>
               <img src={im.thumb} alt="" className="w-full h-full object-cover" loading="lazy" />

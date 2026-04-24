@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Input, Textarea, EmptyState } from "@/components/ui-brutal";
 import { ArrowLeft, Plus, X, Gift, Confetti, Airplane, Article, CreditCard, DiscordLogo, ShoppingCart, ArrowSquareOut } from "@phosphor-icons/react";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 export function Trips() {
   const { user } = useAuth();
@@ -387,8 +388,8 @@ export function MembersShop() {
       .finally(() => setLoading(false));
   }, []);
 
-  const decode = (s = "") => { const d = document.createElement("textarea"); d.innerHTML = s; return d.value; };
-  const strip = (s = "") => { const d = document.createElement("div"); d.innerHTML = s; return (d.textContent || "").replace(/\s+/g, " ").trim(); };
+  const decode = (s = "") => { const d = document.createElement("textarea"); d.innerHTML = sanitizeHtml(s); return d.value; };
+  const strip = (s = "") => { const d = document.createElement("div"); d.innerHTML = sanitizeHtml(s); return (d.textContent || "").replace(/\s+/g, " ").trim(); };
 
   return (
     <div className="space-y-5">
@@ -443,7 +444,7 @@ export function MembersShop() {
                 <h2 className="font-black text-xl">{decode(detail.name)}</h2>
                 <div className="font-black text-2xl">{detail.price}</div>
                 {detail.short_description && <p className="text-sm">{strip(detail.short_description)}</p>}
-                {detail.description && <div className="text-sm text-[var(--muted-fg)]" dangerouslySetInnerHTML={{ __html: detail.description }} />}
+                {detail.description && <div className="text-sm text-[var(--muted-fg)]" dangerouslySetInnerHTML={{ __html: sanitizeHtml(detail.description) }} />}
               </div>
             </div>
             <div className="p-3 border-t-2 border-black bg-white">

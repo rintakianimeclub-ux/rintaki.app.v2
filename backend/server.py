@@ -1356,7 +1356,8 @@ def _parse_year_and_clean(title: str):
 import asyncio as _asyncio
 
 async def _http_get_with_retry(client: httpx.AsyncClient, url: str, retries: int = 2, backoff: float = 2.0):
-    last_exc = None
+    last_exc: Optional[Exception] = None
+    r: Optional[httpx.Response] = None
     for attempt in range(retries + 1):
         try:
             r = await client.get(url)
@@ -1372,6 +1373,9 @@ async def _http_get_with_retry(client: httpx.AsyncClient, url: str, retries: int
             raise
     if last_exc:
         raise last_exc
+    # Defensive: the loop above always returns or raises. This line is
+    # unreachable but keeps static analysers happy about `r` being bound.
+    assert r is not None
     return r
 
 async def _scrape_ngg_gallery(url: str, client: Optional[httpx.AsyncClient] = None) -> dict:
@@ -1488,6 +1492,7 @@ async def refresh_gallery(gallery_id: str, user: dict = Depends(require_admin)):
     g = await db.galleries.find_one({"gallery_id": gallery_id}, {"_id": 0})
     if not g:
         raise HTTPException(404, "Gallery not found")
+    scrape: dict = {}
     try:
         scrape = await _scrape_ngg_gallery(g["source_url"])
     except Exception as e:
@@ -1802,6 +1807,7 @@ async def _guide_cached(key: str, url: str, refresh: bool = False):
         ts, data = _guides_cache[key]
         if now_ts - ts < GUIDES_TTL:
             return {**data, "cached": True}
+    data: dict = {}
     try:
         data = await _scrape_guide_html(url)
     except HTTPException:

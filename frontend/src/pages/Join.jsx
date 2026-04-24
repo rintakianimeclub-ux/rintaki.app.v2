@@ -94,8 +94,8 @@ export default function Join() {
                   </div>
                 </div>
                 <ul className="mt-3 space-y-1.5">
-                  {lvl.benefits.map((b, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
+                  {lvl.benefits.map((b) => (
+                    <li key={b} className="flex items-start gap-2 text-sm">
                       <Check size={14} weight="bold" className="mt-0.5 flex-shrink-0 text-[var(--primary)]" />
                       <span>{b}</span>
                     </li>

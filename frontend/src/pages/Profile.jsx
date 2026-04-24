@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -43,7 +43,7 @@ export default function Profile() {
   const bannerInput = useRef(null);
   const avatarInput = useRef(null);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     if (isSelf && me) {
       setProfile(me);
       setForm({ name: me.name || "", bio: me.bio || "" });
@@ -51,9 +51,9 @@ export default function Profile() {
       const { data } = await api.get(`/users/${userId}`);
       setProfile(data);
     }
-  };
+  }, [isSelf, me, userId]);
 
-  useEffect(() => { loadProfile(); /* eslint-disable-next-line */ }, [userId, me?.user_id]);
+  useEffect(() => { loadProfile(); }, [loadProfile]);
 
   useEffect(() => {
     if (!isSelf) { setWpLoading(false); return; }

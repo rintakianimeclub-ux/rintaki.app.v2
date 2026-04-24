@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -17,7 +17,7 @@ export default function TCGHome() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [cols, my, tr] = await Promise.all([
       api.get("/tcg/collections"),
       api.get("/tcg/my-collection"),
@@ -26,8 +26,8 @@ export default function TCGHome() {
     setCollections(cols.data.collections || []);
     setMine(my.data.cards || []);
     setTrades(tr.data.trades || []);
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const sync = async (e) => {
     e.preventDefault();

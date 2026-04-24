@@ -9,11 +9,15 @@ import uuid
 import requests
 import pytest
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://community-connect-257.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+if not BASE_URL:
+    raise RuntimeError("REACT_APP_BACKEND_URL must be set in the environment to run tests")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@rintaki.org"
-ADMIN_PASSWORD = "Admin@Rintaki2026"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL") or ""
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD") or ""
+if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+    raise RuntimeError("TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD must be set in the environment to run tests")
 
 
 # ---------------- Fixtures ----------------

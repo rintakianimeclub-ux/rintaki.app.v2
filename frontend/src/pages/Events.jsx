@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Sticker, Button, Input, Textarea, EmptyState } from "@/components/ui-brutal";
 import { Calendar, MapPin, Ticket, ImagesSquare, FilmSlate, Plus, X, Trash, CaretRight } from "@phosphor-icons/react";
+import { sanitizeHtml } from "@/lib/sanitize";
 
+// Sanitize-then-strip so we never parse raw third-party HTML via innerHTML.
 function stripHtml(s = "") {
   const d = document.createElement("div");
-  d.innerHTML = s;
+  d.innerHTML = sanitizeHtml(s);
   return (d.textContent || d.innerText || "").replace(/\s+/g, " ").trim();
 }
 
@@ -30,7 +32,7 @@ export default function Events() {
   const [form, setForm] = useState({ kind: "photo", url: "", caption: "", event_id: "", event_title: "" });
   const [lightbox, setLightbox] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const [u, p, ph, vid] = await Promise.all([
       api.get("/events/upcoming").catch(() => ({ data: { events: [] } })),
       api.get("/events/past").catch(() => ({ data: { events: [] } })),
@@ -41,8 +43,8 @@ export default function Events() {
     setPast(p.data.events || []);
     setPhotos(ph.data.media || []);
     setVideos(vid.data.media || []);
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -141,41 +143,41 @@ export default function Events() {
       )}
     </div>
   );
+}
 
-  function EventList({ events, emptyTitle }) {
-    if (events.length === 0) return <EmptyState title={emptyTitle} icon={Calendar} />;
-    return (
-      <div className="space-y-4">
-        {events.map((ev) => (
-          <Link key={ev.event_id} to={`/events/${ev.event_id}`} data-testid={`event-${ev.event_id}`}>
-            <Card className="p-0 overflow-hidden">
-              {(ev.banner_url || ev.cover_image) && (
-                <div className="aspect-[16/9] border-b-2 border-black overflow-hidden">
-                  <img src={ev.banner_url || ev.cover_image} className="w-full h-full object-cover" alt="" />
+function EventList({ events, emptyTitle }) {
+  if (events.length === 0) return <EmptyState title={emptyTitle} icon={Calendar} />;
+  return (
+    <div className="space-y-4">
+      {events.map((ev) => (
+        <Link key={ev.event_id} to={`/events/${ev.event_id}`} data-testid={`event-${ev.event_id}`}>
+          <Card className="p-0 overflow-hidden">
+            {(ev.banner_url || ev.cover_image) && (
+              <div className="aspect-[16/9] border-b-2 border-black overflow-hidden">
+                <img src={ev.banner_url || ev.cover_image} className="w-full h-full object-cover" alt="" />
+              </div>
+            )}
+            <div className="p-3">
+              <Sticker color="accent">
+                <Calendar size={12} weight="bold" /> {new Date(ev.start_date).toLocaleDateString()}
+                {!ev.all_day && ` · ${new Date(ev.start_date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+              </Sticker>
+              <h3 className="font-black text-lg mt-2 leading-tight">{ev.title}</h3>
+              {(ev.venue || ev.city) && (
+                <div className="text-xs font-bold uppercase tracking-widest flex items-center gap-1 mt-1">
+                  <MapPin size={12} weight="bold" /> {[ev.venue, ev.city].filter(Boolean).join(" · ")}
                 </div>
               )}
-              <div className="p-3">
-                <Sticker color="accent">
-                  <Calendar size={12} weight="bold" /> {new Date(ev.start_date).toLocaleDateString()}
-                  {!ev.all_day && ` · ${new Date(ev.start_date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-                </Sticker>
-                <h3 className="font-black text-lg mt-2 leading-tight">{ev.title}</h3>
-                {(ev.venue || ev.city) && (
-                  <div className="text-xs font-bold uppercase tracking-widest flex items-center gap-1 mt-1">
-                    <MapPin size={12} weight="bold" /> {[ev.venue, ev.city].filter(Boolean).join(" · ")}
-                  </div>
-                )}
-                {ev.excerpt && <p className="text-sm text-[var(--muted-fg)] line-clamp-2 mt-1">{stripHtml(ev.excerpt)}</p>}
-                <div className="mt-2 text-[10px] font-black uppercase tracking-widest text-[var(--primary)] flex items-center gap-1">
-                  View details <CaretRight size={12} weight="bold" />
-                </div>
+              {ev.excerpt && <p className="text-sm text-[var(--muted-fg)] line-clamp-2 mt-1">{stripHtml(ev.excerpt)}</p>}
+              <div className="mt-2 text-[10px] font-black uppercase tracking-widest text-[var(--primary)] flex items-center gap-1">
+                View details <CaretRight size={12} weight="bold" />
               </div>
-            </Card>
-          </Link>
-        ))}
-      </div>
-    );
-  }
+            </div>
+          </Card>
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 function MediaGrid({ items, kind, isAdmin, onAdd, onDelete, onOpen }) {

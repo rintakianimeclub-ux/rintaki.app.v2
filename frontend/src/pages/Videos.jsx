@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Button, Input, Textarea, EmptyState } from "@/components/ui-brutal";
@@ -22,11 +22,11 @@ export default function Videos() {
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({ title: "", description: "", url: "", thumbnail: "" });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data } = await api.get("/videos");
     setItems(data.videos || []);
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {
     e.preventDefault();

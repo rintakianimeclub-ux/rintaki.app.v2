@@ -84,6 +84,15 @@ See `/app/memory/test_credentials.md`.
 
 ## Changelog
 
+### 2026-04-24 — Security & correctness cleanup (code-review fixes)
+- **XSS hardening:** added `/app/frontend/src/lib/sanitize.js` (DOMPurify wrapper with strict allow-list). Every `dangerouslySetInnerHTML` and every `div.innerHTML = …` that renders third-party (WordPress/WooCommerce) HTML now passes through `sanitizeHtml()`. Files updated: `Home.jsx`, `Shop.jsx`, `ForumThread.jsx`, `Events.jsx`, `EventDetail.jsx`, `DashboardSubs.jsx`.
+- **Hardcoded test credentials removed:** `/app/backend/tests/backend_test.py` and `/app/backend/tests/test_mobile_pivot.py` now require `REACT_APP_BACKEND_URL`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` from env and raise on missing values instead of falling back to hardcoded strings.
+- **server.py undefined-variable paths** (`_http_get_with_retry`, `refresh_gallery`, `_guide_cached`) — initialised variables before their `try` blocks so static analysers can verify each exit path.
+- **React Hook dependency correctness:** wrapped `load`/`loadProfile` in `useCallback` with the proper deps and added it to the `useEffect` deps array in `TCGHome.jsx`, `TCGCollection.jsx`, `Videos.jsx`, `Profile.jsx`, `Events.jsx`. Removes stale-closure risk when ids/users change.
+- **Component defined inside render:** extracted `EventList` out of `Events()` so it's no longer re-created every render (restores React reconciliation).
+- **Array-index-as-key:** replaced `key={i}` with stable keys in `Join.jsx` (benefits list), `Guides.jsx` (3 spots — fallback + section maps), `EventsGallery.jsx` (thumbnail strip).
+- **Deferred:** the "Important" refactor items from the review (splitting `server.py` monolith functions, `Admin.jsx`, `DashboardSubs.jsx.SubmitArticle`, `Layout.jsx`, `EventsGallery.jsx`, `Feed.jsx` into smaller pieces) were **not** applied — these are quality/maintainability improvements that are high-risk on a working, payment-handling codebase and are scheduled as separate focused PRs.
+
 ### 2026-04-24 — PWA installability verified in preview
 - Removed `NODE_ENV === 'production'` gate on service-worker registration in `/app/frontend/src/App.js` so the SW also registers in preview/dev (PWA audit tools + install prompts now detect it).
 - Verified in preview via Playwright:

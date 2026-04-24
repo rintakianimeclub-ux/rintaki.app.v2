@@ -397,11 +397,11 @@ function ParsedGuide({ endpoint, title, icon: Icon, subtitle, source_url, heroSt
               <p className="text-sm mt-1">{lockedBody || "The website requires a member login to view this page. Here's the in-app summary while we wait for admin to open it up."}</p>
             </Card>
           )}
-          {fallbackSections.map((s, i) => <SectionCard key={i} section={s} claimByKey={{}} onClaim={() => {}} streakProgress={null} />)}
+          {fallbackSections.map((s, i) => <SectionCard key={`fb-${s.heading || i}`} section={s} claimByKey={{}} onClaim={() => {}} streakProgress={null} />)}
         </>
       ) : (
         <>
-          {sections.map((s, i) => <SectionCard key={i} section={s} claimByKey={claimByKey} onClaim={openClaim} streakProgress={streakProgress} />)}
+          {sections.map((s, i) => <SectionCard key={`sec-${s.heading || i}`} section={s} claimByKey={claimByKey} onClaim={openClaim} streakProgress={streakProgress} />)}
         </>
       )}
 

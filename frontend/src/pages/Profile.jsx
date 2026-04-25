@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Card, Button, Input, Textarea, Sticker } from "@/components/ui-brutal";
-import { Camera, PencilSimple, ArrowSquareOut, Trophy, CurrencyCircleDollar, Check, X, ShieldStar, CaretRight } from "@phosphor-icons/react";
+import { Camera, PencilSimple, ArrowSquareOut, Check, X, ShieldStar, SignOut } from "@phosphor-icons/react";
 
 function fileToB64(file) {
   return new Promise((res, rej) => {
@@ -26,7 +26,8 @@ function Row({ label, value }) {
 
 export default function Profile() {
   const { userId } = useParams();
-  const { user: me, refresh } = useAuth();
+  const { user: me, refresh, logout } = useAuth();
+  const navigate = useNavigate();
   const isSelf = !userId || userId === me?.user_id;
 
   const [profile, setProfile] = useState(null);
@@ -164,50 +165,47 @@ export default function Profile() {
         {profile.bio && <p className="text-sm mt-2">{profile.bio}</p>}
       </div>
 
-      {/* Dashboards (self only) — moved here from More page so they sit with Account details */}
-      {isSelf && profile.role === "admin" && (
-        <Link to="/admin" data-testid="profile-admin-panel">
-          <Card className="bg-black text-white flex items-center gap-3">
-            <div className="w-10 h-10 bg-[var(--secondary)] text-black border-2 border-black rounded-full flex items-center justify-center"><ShieldStar size={18} weight="fill" /></div>
-            <div className="flex-1">
-              <div className="font-black">Admin Panel</div>
-              <div className="text-xs opacity-80">Manage members, events & content</div>
-            </div>
-            <CaretRight size={18} weight="bold" />
-          </Card>
-        </Link>
-      )}
-      {isSelf && (profile.is_member || profile.role === "admin") && (
-        <Link to="/dashboard" data-testid="profile-members-panel">
-          <Card className="bg-[var(--primary)] text-white flex items-center gap-3">
-            <div className="w-10 h-10 bg-white text-black border-2 border-black rounded-full flex items-center justify-center"><ShieldStar size={18} weight="fill" /></div>
-            <div className="flex-1">
-              <div className="font-black">Members Dashboard</div>
-              <div className="text-xs opacity-90">Members-only features & trips</div>
-            </div>
-            <CaretRight size={18} weight="bold" />
-          </Card>
-        </Link>
+      {/* Dashboards (self only) — compact 2-col grid, replaces points/cash stats */}
+      {isSelf && (profile.role === "admin" || profile.is_member) && (
+        <div className="grid grid-cols-2 gap-3">
+          {profile.role === "admin" && (
+            <Link to="/admin" data-testid="profile-admin-panel">
+              <Card className="bg-black text-white flex items-center gap-2 h-full">
+                <ShieldStar size={20} weight="fill" className="text-[var(--secondary)]" />
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-widest opacity-80">Admin</div>
+                  <div className="font-black truncate">Panel</div>
+                </div>
+              </Card>
+            </Link>
+          )}
+          {(profile.is_member || profile.role === "admin") && (
+            <Link to="/dashboard" data-testid="profile-members-panel">
+              <Card className="bg-[var(--primary)] text-white flex items-center gap-2 h-full">
+                <ShieldStar size={20} weight="fill" />
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-widest opacity-90">Members</div>
+                  <div className="font-black truncate">Dashboard</div>
+                </div>
+              </Card>
+            </Link>
+          )}
+        </div>
       )}
 
-      {/* Points / cash quick stats (member only) */}
-      {(profile.is_member || profile.role === "admin") && (
-        <div className="grid grid-cols-2 gap-3">
-          <Card className="flex items-center gap-2">
-            <Trophy size={20} weight="fill" className="text-[var(--primary)]" />
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">Points</div>
-              <div className="font-black text-xl">{profile.points ?? 0}</div>
-            </div>
-          </Card>
-          <Card className="flex items-center gap-2">
-            <CurrencyCircleDollar size={20} weight="fill" className="text-[var(--primary)]" />
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-[var(--muted-fg)]">Anime Cash</div>
-              <div className="font-black text-xl">${profile.anime_cash ?? 0}</div>
-            </div>
-          </Card>
-        </div>
+      {/* Log out (self only) */}
+      {isSelf && (
+        <Button
+          variant="ghost"
+          className="w-full"
+          data-testid="profile-logout-btn"
+          onClick={async () => {
+            await logout();
+            navigate("/login");
+          }}
+        >
+          <SignOut size={14} weight="bold" /> Log out
+        </Button>
       )}
 
       {/* WordPress-linked fields (self only) */}

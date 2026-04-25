@@ -1,7 +1,6 @@
 import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
@@ -174,11 +173,9 @@ function App() {
 
   return (
     <BrowserRouter>
-      <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID || ""}>
-        <AuthProvider>
-          <RouterShell />
-        </AuthProvider>
-      </GoogleOAuthProvider>
+      <AuthProvider>
+        <RouterShell />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

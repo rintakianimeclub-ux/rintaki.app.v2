@@ -3,7 +3,6 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Input } from "@/components/ui-brutal";
 import Logo from "@/components/Logo";
-import GoogleSignInButton from "@/components/GoogleSignInButton";
 import { Sparkle } from "@phosphor-icons/react";
 
 export default function Register() {
@@ -35,16 +34,6 @@ export default function Register() {
         </Link>
         <h2 className="font-black text-3xl md:text-4xl mb-1">Join the club</h2>
         <p className="text-[var(--muted-fg)] mb-6">Get <span className="hand-underline font-bold">10 free points</span> on signup.</p>
-
-        <div className="mb-4">
-          <GoogleSignInButton onError={(msg) => setErr(msg)} />
-        </div>
-
-        <div className="flex items-center gap-3 my-4">
-          <div className="h-0.5 bg-black flex-1" />
-          <span className="text-xs uppercase tracking-widest font-bold">or email</span>
-          <div className="h-0.5 bg-black flex-1" />
-        </div>
 
         <div className="space-y-3">
           <Input placeholder="Your display name" required value={form.name}

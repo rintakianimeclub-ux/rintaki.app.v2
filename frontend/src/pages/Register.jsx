@@ -3,7 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Input } from "@/components/ui-brutal";
 import Logo from "@/components/Logo";
-import { GoogleLogo, Sparkle } from "@phosphor-icons/react";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
+import { Sparkle } from "@phosphor-icons/react";
 
 export default function Register() {
   const { register } = useAuth();
@@ -11,12 +12,6 @@ export default function Register() {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const googleLogin = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/auth/callback";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -41,14 +36,9 @@ export default function Register() {
         <h2 className="font-black text-3xl md:text-4xl mb-1">Join the club</h2>
         <p className="text-[var(--muted-fg)] mb-6">Get <span className="hand-underline font-bold">10 free points</span> on signup.</p>
 
-        <button
-          type="button"
-          onClick={googleLogin}
-          data-testid="google-register-btn"
-          className="w-full bg-white brutal-btn rounded-full py-3 font-bold flex items-center justify-center gap-2 mb-4"
-        >
-          <GoogleLogo size={18} weight="bold" /> Continue with Google
-        </button>
+        <div className="mb-4">
+          <GoogleSignInButton onError={(msg) => setErr(msg)} />
+        </div>
 
         <div className="flex items-center gap-3 my-4">
           <div className="h-0.5 bg-black flex-1" />

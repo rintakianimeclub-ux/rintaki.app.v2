@@ -1,0 +1,23 @@
+# Local files / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Node / React
+node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+backend/.env
+
+# OS
+Thumbs.db
+
+# Emergent (preview-only)
+.emergent/

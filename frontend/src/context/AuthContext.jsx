@@ -18,14 +18,7 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  useEffect(() => {
-    // Emergent OAuth callback is handled on /auth/callback; skip /me there
-    if (window.location.hash?.includes("session_id=")) {
-      setLoading(false);
-      return;
-    }
-    checkAuth();
-  }, [checkAuth]);
+  useEffect(() => { checkAuth(); }, [checkAuth]);
 
   const login = async (email, password) => {
     try {
@@ -47,15 +40,26 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Google sign-in: exchange a Google ID token (credential JWT) for our JWT cookies.
+  const googleSignIn = async (credential) => {
+    try {
+      const { data } = await api.post("/auth/google", { credential });
+      setUser(data);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message };
+    }
+  };
+
   const logout = async () => {
-    try { await api.post("/auth/logout"); } catch {}
+    try { await api.post("/auth/logout"); } catch { /* ignore */ }
     setUser(null);
   };
 
   const refresh = checkAuth;
 
   return (
-    <AuthCtx.Provider value={{ user, setUser, loading, login, register, logout, refresh }}>
+    <AuthCtx.Provider value={{ user, setUser, loading, login, register, googleSignIn, logout, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

@@ -84,6 +84,40 @@ See `/app/memory/test_credentials.md`.
 
 ## Changelog
 
+### 2026-04-25 — De-Emergented; ready to deploy on user's own hosting (Phase A)
+**Goal:** prepare the codebase to run on the user's own infrastructure (Render Web Service at `app.rintaki.org`, MongoDB Atlas, own Google Cloud OAuth app, own Stripe keys). User chose: Render.com hosting · own Google OAuth (Client ID/Secret to be provided) · official Stripe SDK with TEST key · GitHub-based deploy via Emergent's "Save to GitHub" · LIVE Stripe key swap deferred until after testing.
+
+**Code changes (no credentials required, all self-tested):**
+- **Removed all Emergent traces from the bundle:** stripped `emergent-main.js` script + `#emergent-badge` block + PostHog analytics block from `frontend/public/index.html`. Removed `@emergentbase/visual-edits` from package.json and the `withVisualEdits()` block from `craco.config.js`. Verified via Playwright: `#emergent-badge` not in DOM, `<script src*="emergent-main">` absent, `window.posthog` undefined.
+- **Replaced Emergent Google OAuth with own Google OAuth (ID-token verification):**
+  - `POST /api/auth/google` (new) — accepts `{credential}` (Google ID token JWT), verifies it via `google.oauth2.id_token.verify_oauth2_token` against `GOOGLE_CLIENT_ID`, find-or-creates user, sets our existing JWT cookies. Removed the old `POST /api/auth/google/session` (which called `demobackend.emergentagent.com`).
+  - Frontend: new `<GoogleSignInButton>` component using `@react-oauth/google`'s `<GoogleLogin>`. `<App>` now wraps with `<GoogleOAuthProvider clientId={REACT_APP_GOOGLE_CLIENT_ID}>`. `Login.jsx` and `Register.jsx` use the new component.
+  - Removed the `/auth/callback` route, `AuthCallback.jsx`, and the `session_id=` hash interception in `App.js` and `AuthContext.jsx`.
+- **Replaced `emergentintegrations.payments.stripe.checkout` with the official `stripe` Python SDK:**
+  - `POST /api/payments/tickets/checkout`, `GET /api/payments/status/{session_id}`, and `POST /api/webhook/stripe` rewritten to use `stripe.checkout.Session.create()`, `stripe.checkout.Session.retrieve()`, and `stripe.Webhook.construct_event()`. External HTTP contract unchanged so the React frontend doesn't need updates.
+  - `STRIPE_WEBHOOK_SECRET` is now a separate env var (the webhook endpoint refuses unsigned payloads when set; polling path on `/payments/status/{id}` still grants tickets so it's safe to leave blank during initial testing).
+  - `requirements.txt`: removed `emergentintegrations==0.1.0`, added `stripe==15.0.1` and `google-auth==2.49.1`.
+- **CORS hardening:** removed the `https://*.preview.emergentagent.com` regex from CORS. Now reads `FRONTEND_URL` + optional comma-separated `CORS_ORIGINS` env vars.
+- **Static file serving:** when `SERVE_STATIC=1` the FastAPI app also serves the React build from `/app/backend/static/` (mounted at `/static`, with a catch-all `/{path}` falling back to `index.html` for BrowserRouter). This lets one Render service host both API and frontend on a single domain.
+
+**Deployment kit (new files):**
+- `/app/Dockerfile` — multi-stage: stage 1 builds React with `REACT_APP_*` build args, stage 2 runs FastAPI on `$PORT` and serves the built React from `/app/backend/static`.
+- `/app/render.yaml` — Render Blueprint with all env-var slots (secrets `sync: false`, `JWT_SECRET` auto-generated).
+- `/app/backend/.env.example` and `/app/frontend/.env.example` — committable templates.
+- `/app/.gitignore.deploy` — example .gitignore (committed `.env` files excluded).
+- `/app/DEPLOY.md` — end-to-end step-by-step guide: GitHub push, MongoDB Atlas free cluster, Google Cloud OAuth Client ID, Stripe TEST keys, Render Blueprint setup, custom domain `app.rintaki.org`, Stripe webhook hookup, smoke test, troubleshooting.
+
+**Phase B (user's todo, doc'd in DEPLOY.md):**
+1. Push repo via "Save to GitHub" button.
+2. Create MongoDB Atlas free cluster → get `MONGO_URL`.
+3. Create Google Cloud OAuth Client ID at https://console.cloud.google.com → get `GOOGLE_CLIENT_ID`.
+4. Get Stripe TEST secret key from https://dashboard.stripe.com/apikeys → get `STRIPE_API_KEY`.
+5. Render → New Blueprint → connect repo → paste env vars → deploy.
+6. Add CNAME `app` → `<service>.onrender.com` at DNS provider.
+7. Stripe Dashboard → Webhooks → add `https://app.rintaki.org/api/webhook/stripe` listening to `checkout.session.completed` → copy signing secret → paste back to Render as `STRIPE_WEBHOOK_SECRET`.
+
+**Confirmed by Emergent support:** when self-hosting outside Emergent's deployment, no attribution is required and the badge / `emergent-main.js` / `@emergentbase/visual-edits` can all be removed. (Verbatim policy stored in this conversation.)
+
 ### 2026-04-24 — Security & correctness cleanup (code-review fixes)
 - **XSS hardening:** added `/app/frontend/src/lib/sanitize.js` (DOMPurify wrapper with strict allow-list). Every `dangerouslySetInnerHTML` and every `div.innerHTML = …` that renders third-party (WordPress/WooCommerce) HTML now passes through `sanitizeHtml()`. Files updated: `Home.jsx`, `Shop.jsx`, `ForumThread.jsx`, `Events.jsx`, `EventDetail.jsx`, `DashboardSubs.jsx`.
 - **Hardcoded test credentials removed:** `/app/backend/tests/backend_test.py` and `/app/backend/tests/test_mobile_pivot.py` now require `REACT_APP_BACKEND_URL`, `TEST_ADMIN_EMAIL`, `TEST_ADMIN_PASSWORD` from env and raise on missing values instead of falling back to hardcoded strings.

@@ -17,6 +17,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from pydantic import BaseModel, Field, EmailStr
@@ -496,26 +497,42 @@ async def me(user: dict = Depends(get_current_user)):
         user = await db.users.find_one({"user_id": user["user_id"]}) or user
     return await public_user_enriched(user)
 
-@api.post("/auth/google/session")
-async def google_session(request: Request, response: Response, x_session_id: Optional[str] = Header(None, alias="X-Session-ID")):
-    if not x_session_id:
-        raise HTTPException(400, "Missing X-Session-ID header")
-    try:
-        async with httpx.AsyncClient(timeout=10) as hc:
-            r = await hc.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": x_session_id},
-            )
-            if r.status_code != 200:
-                raise HTTPException(401, "Invalid session")
-            data = r.json()
-    except httpx.HTTPError:
-        raise HTTPException(502, "Auth provider error")
+@api.post("/auth/google")
+async def google_signin(request: Request, response: Response):
+    """Sign in / sign up with a Google ID token (credential JWT) returned from
+    Google Identity Services on the frontend. Verifies the token directly
+    against Google, then issues our standard JWT access_token + refresh_token
+    cookies via set_jwt_cookies(). Find-or-create user by lowercased email.
 
-    email = data["email"].lower()
-    name = data.get("name", email.split("@")[0])
-    picture = data.get("picture")
-    session_token = data["session_token"]
+    Requires GOOGLE_CLIENT_ID env var to be set to your own Google Cloud
+    OAuth Client ID.
+    """
+    from google.oauth2 import id_token as g_id_token
+    from google.auth.transport import requests as g_requests
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(500, "Google sign-in not configured (missing GOOGLE_CLIENT_ID)")
+
+    body = await request.json()
+    credential = (body or {}).get("credential")
+    if not credential:
+        raise HTTPException(400, "Missing Google credential")
+
+    try:
+        idinfo = g_id_token.verify_oauth2_token(credential, g_requests.Request(), client_id)
+    except ValueError as e:
+        logger.warning(f"google id_token verify failed: {e}")
+        raise HTTPException(401, "Invalid Google credential")
+
+    if not idinfo.get("email_verified"):
+        raise HTTPException(401, "Google account email not verified")
+
+    email = (idinfo.get("email") or "").lower()
+    if not email:
+        raise HTTPException(401, "Google credential has no email")
+    name = idinfo.get("name") or email.split("@")[0]
+    picture = idinfo.get("picture")
 
     user = await db.users.find_one({"email": email})
     if not user:
@@ -537,17 +554,14 @@ async def google_session(request: Request, response: Response, x_session_id: Opt
             "reason": "Welcome bonus", "created_at": iso(now_utc()),
         })
     else:
-        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"name": name, "picture": picture}})
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"name": name, "picture": picture}},
+        )
+        user = await db.users.find_one({"user_id": user["user_id"]}) or user
 
-    await db.user_sessions.insert_one({
-        "session_token": session_token,
-        "user_id": user["user_id"],
-        "created_at": iso(now_utc()),
-        "expires_at": iso(now_utc() + timedelta(days=7)),
-    })
-
-    response.set_cookie("session_token", session_token, httponly=True, secure=True, samesite="none",
-                        max_age=7*24*60*60, path="/")
+    set_jwt_cookies(response, user["user_id"])
+    return public_user(user)
     user = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
     return public_user(user)
 
@@ -3649,18 +3663,16 @@ class TicketCheckoutIn(BaseModel):
 
 @api.post("/payments/tickets/checkout")
 async def ticket_checkout(data: TicketCheckoutIn, request: Request, user: dict = Depends(get_current_user)):
-    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+    import stripe
     ev = await db.events.find_one({"event_id": data.event_id})
     if not ev:
         raise HTTPException(404, "Event not found")
     if not ev.get("ticket_enabled") or not ev.get("ticket_price"):
         raise HTTPException(400, "Tickets not available for this event")
     qty = max(1, min(10, int(data.quantity)))
-    amount = float(ev["ticket_price"]) * qty
-    api_key = os.environ["STRIPE_API_KEY"]
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    unit_price = float(ev["ticket_price"])
+    amount = unit_price * qty
+    stripe.api_key = os.environ["STRIPE_API_KEY"]
     success_url = f"{data.origin_url}/tickets/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{data.origin_url}/events"
     metadata = {
@@ -3669,10 +3681,28 @@ async def ticket_checkout(data: TicketCheckoutIn, request: Request, user: dict =
         "quantity": str(qty),
         "kind": "event_ticket",
     }
-    req = CheckoutSessionRequest(amount=amount, currency="usd", success_url=success_url, cancel_url=cancel_url, metadata=metadata)
-    session = await stripe_checkout.create_checkout_session(req)
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"{ev.get('title') or 'Event ticket'}"},
+                    "unit_amount": int(round(unit_price * 100)),  # cents
+                },
+                "quantity": qty,
+            }],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata=metadata,
+        )
+    except stripe.error.StripeError as e:
+        logger.warning(f"stripe checkout create failed: {e}")
+        raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', None) or str(e)}")
+
     await db.payment_transactions.insert_one({
-        "session_id": session.session_id,
+        "session_id": session.id,
         "user_id": user["user_id"],
         "event_id": ev["event_id"],
         "amount": amount,
@@ -3683,24 +3713,31 @@ async def ticket_checkout(data: TicketCheckoutIn, request: Request, user: dict =
         "status": "open",
         "created_at": iso(now_utc()),
     })
-    return {"url": session.url, "session_id": session.session_id}
+    return {"url": session.url, "session_id": session.id}
 
 @api.get("/payments/status/{session_id}")
 async def payment_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
-    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    import stripe
     tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
     if not tx:
         raise HTTPException(404, "Transaction not found")
-    api_key = os.environ["STRIPE_API_KEY"]
-    host_url = str(request.base_url).rstrip("/")
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
-    status = await stripe_checkout.get_checkout_status(session_id)
+    stripe.api_key = os.environ["STRIPE_API_KEY"]
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError as e:
+        logger.warning(f"stripe retrieve failed: {e}")
+        raise HTTPException(502, f"Stripe error: {getattr(e, 'user_message', None) or str(e)}")
+
+    payment_status_v = session.get("payment_status")
+    status_v = session.get("status")
+    amount_total = session.get("amount_total") or 0
+    currency = session.get("currency") or "usd"
 
     # Idempotent ticket creation
-    if status.payment_status == "paid" and tx.get("payment_status") != "paid":
+    if payment_status_v == "paid" and tx.get("payment_status") != "paid":
         await db.payment_transactions.update_one(
             {"session_id": session_id},
-            {"$set": {"payment_status": "paid", "status": status.status, "paid_at": iso(now_utc())}},
+            {"$set": {"payment_status": "paid", "status": status_v, "paid_at": iso(now_utc())}},
         )
         qty = int(tx.get("quantity", 1))
         for _ in range(qty):
@@ -3712,37 +3749,44 @@ async def payment_status(session_id: str, request: Request, user: dict = Depends
                 "created_at": iso(now_utc()),
             })
         await push_notification(tx["user_id"], "Ticket confirmed!", f"You have {qty} ticket(s). See My Tickets.", "ticket", "/tickets")
-    elif status.payment_status != tx.get("payment_status"):
+    elif payment_status_v != tx.get("payment_status"):
         await db.payment_transactions.update_one(
             {"session_id": session_id},
-            {"$set": {"payment_status": status.payment_status, "status": status.status}},
+            {"$set": {"payment_status": payment_status_v, "status": status_v}},
         )
     return {
-        "status": status.status,
-        "payment_status": status.payment_status,
-        "amount_total": status.amount_total,
-        "currency": status.currency,
+        "status": status_v,
+        "payment_status": payment_status_v,
+        "amount_total": amount_total,
+        "currency": currency,
     }
 
 @api.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
-    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    import stripe
     body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
-    api_key = os.environ["STRIPE_API_KEY"]
-    host_url = str(request.base_url).rstrip("/")
-    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=f"{host_url}/api/webhook/stripe")
+    stripe.api_key = os.environ["STRIPE_API_KEY"]
+    secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    if not secret:
+        # Webhook verification is mandatory in production. Without a secret we
+        # cannot trust the payload — refuse to process it. The polling path on
+        # /payments/status/{id} still grants tickets, so this is non-fatal.
+        logger.warning("stripe webhook hit without STRIPE_WEBHOOK_SECRET set; ignoring")
+        return {"ok": False, "reason": "webhook secret not configured"}
     try:
-        webhook_response = await stripe_checkout.handle_webhook(body, signature)
-    except Exception as e:
-        logger.warning(f"stripe webhook error: {e}")
-        return {"ok": False}
-    # Mirror the logic: flip to paid and grant ticket once
-    if webhook_response and webhook_response.session_id:
-        tx = await db.payment_transactions.find_one({"session_id": webhook_response.session_id})
-        if tx and webhook_response.payment_status == "paid" and tx.get("payment_status") != "paid":
+        event = stripe.Webhook.construct_event(body, signature, secret)
+    except (ValueError, stripe.error.SignatureVerificationError) as e:
+        logger.warning(f"stripe webhook signature invalid: {e}")
+        raise HTTPException(400, "Invalid webhook signature")
+
+    if event.get("type") == "checkout.session.completed":
+        session = event["data"]["object"]
+        session_id = session.get("id")
+        tx = await db.payment_transactions.find_one({"session_id": session_id})
+        if tx and session.get("payment_status") == "paid" and tx.get("payment_status") != "paid":
             await db.payment_transactions.update_one(
-                {"session_id": webhook_response.session_id},
+                {"session_id": session_id},
                 {"$set": {"payment_status": "paid", "status": "complete", "paid_at": iso(now_utc())}},
             )
             qty = int(tx.get("quantity", 1))
@@ -3751,9 +3795,10 @@ async def stripe_webhook(request: Request):
                     "ticket_id": f"tk_{uuid.uuid4().hex[:10]}",
                     "user_id": tx["user_id"],
                     "event_id": tx["event_id"],
-                    "session_id": webhook_response.session_id,
+                    "session_id": session_id,
                     "created_at": iso(now_utc()),
                 })
+            await push_notification(tx["user_id"], "Ticket confirmed!", f"You have {qty} ticket(s). See My Tickets.", "ticket", "/tickets")
     return {"ok": True}
 
 @api.get("/tickets")
@@ -3782,11 +3827,11 @@ PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/api/uploads/plugin", StaticFiles(directory=str(PLUGIN_DIR)), name="plugin-zip")
 
 _frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+_extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip() and o.strip() != "*"]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[_frontend_url, "http://localhost:3000"],
-    allow_origin_regex=r"https://.*\.preview\.emergentagent\.com",
+    allow_origins=list({_frontend_url, "http://localhost:3000", *_extra_origins}),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -3794,3 +3839,26 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+
+# When SERVE_STATIC=1 (set in our Dockerfile), serve the React build alongside
+# the API. /api/* routes are already registered above so they take precedence.
+# Anything else falls through to index.html for client-side routing (BrowserRouter).
+if os.environ.get("SERVE_STATIC") == "1":
+    _static_dir = Path(__file__).parent / "static"
+    if _static_dir.is_dir():
+        # Serve hashed JS/CSS/images from /static/...
+        app.mount(
+            "/static",
+            StaticFiles(directory=str(_static_dir / "static")),
+            name="react-static",
+        )
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def serve_react(full_path: str):
+            # Try a literal file first (favicon.ico, manifest.json, icons/, service-worker.js, etc.)
+            candidate = _static_dir / full_path
+            if full_path and candidate.is_file():
+                return FileResponse(str(candidate))
+            # Fall through to index.html for any unmatched path (BrowserRouter)
+            return FileResponse(str(_static_dir / "index.html"))

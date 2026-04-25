@@ -1,0 +1,65 @@
+# Render blueprint for Rintaki Anime Club Society
+# Push this repo to GitHub, then on Render: New → Blueprint → connect repo.
+# Render will read this file and create the service automatically.
+
+services:
+  - type: web
+    name: rintaki-app
+    plan: starter      # $7/mo always-on; switch to "free" while testing if you prefer
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/
+    autoDeploy: true
+    envVars:
+      # ------ public (baked into the React build) ------
+      - key: REACT_APP_BACKEND_URL
+        sync: false   # set in Render dashboard, e.g. https://app.rintaki.org
+      - key: REACT_APP_GOOGLE_CLIENT_ID
+        sync: false   # your Google OAuth Client ID
+
+      # ------ backend secrets (set via Render dashboard, never committed) ------
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: rintaki_db
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false   # same as REACT_APP_BACKEND_URL
+
+      # ------ social / WP plugin sync (set via Render dashboard) ------
+      - key: SOCIAL_TIKTOK
+        sync: false
+      - key: SOCIAL_INSTAGRAM
+        sync: false
+      - key: SOCIAL_TWITTER
+        sync: false
+      - key: SOCIAL_FACEBOOK
+        sync: false
+      - key: SOCIAL_YOUTUBE
+        sync: false
+      - key: SOCIAL_DISCORD_PUBLIC
+        sync: false
+      - key: SOCIAL_DISCORD_MEMBERS
+        sync: false
+      - key: LIBRARY_URL
+        value: https://www.libib.com/u/rintakianimeclub
+      - key: RINTAKI_WP_BASE_URL
+        value: https://rintaki.org
+      - key: RINTAKI_WP_KEY
+        sync: false
+      - key: RINTAKI_MYCRED_POINTS_TYPE
+        value: mycred_default
+      - key: RINTAKI_MYCRED_CASH_TYPE
+        value: anime_cash

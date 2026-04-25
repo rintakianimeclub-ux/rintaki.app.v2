@@ -3,7 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button, Input } from "@/components/ui-brutal";
 import Logo from "@/components/Logo";
-import { GoogleLogo, Lightning, Eye, EyeSlash } from "@phosphor-icons/react";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
+import { Lightning, Eye, EyeSlash } from "@phosphor-icons/react";
 
 export default function Login() {
   const { login } = useAuth();
@@ -22,12 +23,6 @@ export default function Login() {
     setLoading(false);
     if (res.ok) navigate("/");
     else setErr(res.error);
-  };
-
-  const googleLogin = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/auth/callback";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
   };
 
   return (
@@ -76,14 +71,9 @@ export default function Login() {
           <h2 className="font-black text-3xl md:text-4xl mb-1">Welcome back</h2>
           <p className="text-[var(--muted-fg)] mb-6">Sign in to claim your daily points.</p>
 
-          <button
-            type="button"
-            onClick={googleLogin}
-            data-testid="google-login-btn"
-            className="w-full bg-white brutal-btn rounded-full py-3 font-bold flex items-center justify-center gap-2 mb-4"
-          >
-            <GoogleLogo size={18} weight="bold" /> Continue with Google
-          </button>
+          <div className="mb-4">
+            <GoogleSignInButton onError={(msg) => setErr(msg)} />
+          </div>
 
           <div className="flex items-center gap-3 my-4">
             <div className="h-0.5 bg-black flex-1" />

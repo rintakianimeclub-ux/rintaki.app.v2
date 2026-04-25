@@ -1,11 +1,11 @@
 import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
-import AuthCallback from "@/pages/AuthCallback";
 import Home from "@/pages/Home";
 import Forums from "@/pages/Forums";
 import ForumThread from "@/pages/ForumThread";
@@ -77,14 +77,10 @@ function AdminOnly({ children }) {
 }
 
 function RouterShell() {
-  const location = useLocation();
-  if (location.hash?.includes("session_id=")) return <AuthCallback />;
-
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/auth/callback" element={<AuthCallback />} />
 
       <Route path="/" element={<Public><Home /></Public>} />
       <Route path="/forums" element={<Public><Forums /></Public>} />
@@ -178,9 +174,11 @@ function App() {
 
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <RouterShell />
-      </AuthProvider>
+      <GoogleOAuthProvider clientId={process.env.REACT_APP_GOOGLE_CLIENT_ID || ""}>
+        <AuthProvider>
+          <RouterShell />
+        </AuthProvider>
+      </GoogleOAuthProvider>
     </BrowserRouter>
   );
 }

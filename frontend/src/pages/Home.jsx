@@ -6,6 +6,7 @@ import { Card, Sticker, Button } from "@/components/ui-brutal";
 import Logo from "@/components/Logo";
 import { Fire, Calendar, ArrowUpRight, Trophy, Lightning,
   BookOpen, Buildings, FilmSlate, SignIn, Sparkle, CurrencyCircleDollar, ShoppingBag,
+  ShieldStar, CaretRight,
 } from "@phosphor-icons/react";
 import { sanitizeHtml } from "@/lib/sanitize";
 
@@ -107,6 +108,17 @@ export default function Home() {
               <Button variant="secondary" onClick={claimDaily} disabled={claimed} className="mt-3 w-full" data-testid="claim-daily-btn">
                 <Lightning size={14} weight="fill" /> {claimed ? claimMsg || "Claimed" : "Claim daily +5"}
               </Button>
+              <Link to="/dashboard" data-testid="home-members-dashboard"
+                    className="mt-2 flex items-center gap-2 bg-white text-black border-2 border-black rounded-xl px-3 py-2 shadow-[3px_3px_0_#111]">
+                <div className="w-9 h-9 bg-[var(--secondary)] border-2 border-black rounded-full flex items-center justify-center">
+                  <ShieldStar size={16} weight="fill" />
+                </div>
+                <div className="flex-1 text-left min-w-0">
+                  <div className="font-black leading-none">Members Dashboard</div>
+                  <div className="text-[10px] uppercase tracking-widest font-bold text-[var(--muted-fg)]">Trips · giveaways · contests · catalog</div>
+                </div>
+                <CaretRight size={16} weight="bold" />
+              </Link>
             </>
           )}
 

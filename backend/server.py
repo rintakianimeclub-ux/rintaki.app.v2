@@ -314,6 +314,25 @@ async def push_notification(user_id: str, title: str, body: str, kind: str = "in
         "created_at": iso(now_utc()),
     })
 
+async def push_notifications_bulk(user_ids: list[str], title: str, body: str, kind: str = "info", link: Optional[str] = None):
+    """Bulk-insert one notification per user_id in a single round-trip. Use this
+    instead of looping push_notification(...) for fan-outs (e.g. announcing a new
+    event/newsletter to all users). No-op when user_ids is empty."""
+    if not user_ids:
+        return
+    now = iso(now_utc())
+    docs = [{
+        "notif_id": f"n_{uuid.uuid4().hex[:12]}",
+        "user_id": uid,
+        "title": title,
+        "body": body,
+        "kind": kind,
+        "link": link,
+        "read": False,
+        "created_at": now,
+    } for uid in user_ids]
+    await db.notifications.insert_many(docs, ordered=False)
+
 # ----------------- Models -----------------
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -1108,10 +1127,9 @@ async def create_event(data: EventCreate, user: dict = Depends(require_admin)):
         "created_at": iso(now_utc()),
     }
     await db.events.insert_one(ev)
-    # Notify all users
-    all_users = await db.users.find({}, {"_id": 0, "user_id": 1}).to_list(1000)
-    for u in all_users:
-        await push_notification(u["user_id"], "New event!", data.title, "event", "/events")
+    # Notify all users (single bulk insert, was N+1)
+    all_users = await db.users.find({}, {"_id": 0, "user_id": 1}).to_list(10000)
+    await push_notifications_bulk([u["user_id"] for u in all_users], "New event!", data.title, "event", "/events")
     ev.pop("_id", None)
     return ev
 
@@ -1130,9 +1148,8 @@ async def create_newsletter(data: NewsletterCreate, user: dict = Depends(require
         "created_at": iso(now_utc()),
     }
     await db.newsletters.insert_one(n)
-    all_users = await db.users.find({}, {"_id": 0, "user_id": 1}).to_list(1000)
-    for u in all_users:
-        await push_notification(u["user_id"], "New newsletter", data.title, "newsletter", "/newsletters")
+    all_users = await db.users.find({}, {"_id": 0, "user_id": 1}).to_list(10000)
+    await push_notifications_bulk([u["user_id"] for u in all_users], "New newsletter", data.title, "newsletter", "/newsletters")
     n.pop("_id", None)
     return n
 
@@ -3758,15 +3775,33 @@ PLUGIN_DIR = Path("/app/backend/uploads/plugin")
 PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/api/uploads/plugin", StaticFiles(directory=str(PLUGIN_DIR)), name="plugin-zip")
 
+# CORS configuration. On Emergent's native deploy the platform doesn't expose
+# the public URL as an env var to our app, so allow:
+#   - whatever's in FRONTEND_URL (set explicitly by the operator), AND
+#   - whatever's in CORS_ORIGINS (comma-separated; "*" => allow all origins).
 _frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-_extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip() and o.strip() != "*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=list({_frontend_url, "http://localhost:3000", *_extra_origins}),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors_raw == "*":
+    # Wildcard mode — credentials must be off for the spec to allow this.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=False,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    _extra_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_credentials=True,
+        allow_origins=list({_frontend_url, "http://localhost:3000", *_extra_origins}),
+        # Match any *.preview.emergentagent.com (Emergent's native preview) and
+        # any explicit production deploy URLs the operator adds via CORS_ORIGINS.
+        allow_origin_regex=r"https://.*\.(preview\.emergentagent\.com|emergent\.host)",
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 @app.on_event("shutdown")
 async def shutdown():

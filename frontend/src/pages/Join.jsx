@@ -20,7 +20,7 @@ export default function Join() {
 
   const load = async (refresh = false) => {
     setRefreshing(refresh);
-    const { data } = await api.get("https://www.rintaki.org/memberships/levels", { params: refresh ? { refresh: 1 } : {} }).catch(() => ({ data: { levels: [] } }));
+    const { data } = await api.get("https://rintaki.org/membership-account/membership-levels/", { params: refresh ? { refresh: 1 } : {} }).catch(() => ({ data: { levels: [] } }));
     setLevels(data.levels || []);
     setMeta({ source: data.source || "", cached_at: data.cached_at || 0 });
     setLoading(false);

@@ -3,7 +3,7 @@ import axios from "axios";
 export const API = "https://rintaki-app-v2.onrender.com";
 
 export const api = axios.create({
-  baseURL: API,
+  baseURL: "https://rintaki-app-v2.onrender.com/api",
   withCredentials: true,
 });
 

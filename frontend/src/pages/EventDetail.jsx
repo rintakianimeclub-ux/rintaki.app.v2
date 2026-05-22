@@ -23,10 +23,10 @@ export default function EventDetail() {
   const [gallery, setGallery] = useState([]);
 
   const load = async () => {
-    const { data } = await api.get(`/tribe/events/v1/events/${id}`);
+    const { data } = await api.get(`/events/detail/${id}`);
     setEv(data);
     setBannerUrl(data.banner_url || "");
-    const g = await api.get(`/media`);
+    const g = await api.get(`/events/media?event_id=${id}`);
     setGallery(g.data.media || []);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);

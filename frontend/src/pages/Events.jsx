@@ -34,7 +34,7 @@ export default function Events() {
 
   const load = useCallback(async () => {
     const [u, p, ph, vid] = await Promise.all([
-      api.get("/tribe/events/v1/events/upcoming").catch(() => ({ data: { events: [] } })),
+      api.get("/tribe/events/v1/events?starts_after=now").catch(() => ({ data: { events: [] } })),
       api.get("/tribe/events/v1/events/past").catch(() => ({ data: { events: [] } })),
       api.get("/tribe/events/v1/events/media?kind=photo").catch(() => ({ data: { media: [] } })),
       api.get("/tribe/events/v1/events/media?kind=video").catch(() => ({ data: { media: [] } })),

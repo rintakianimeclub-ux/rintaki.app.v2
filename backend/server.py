@@ -1036,13 +1036,20 @@ async def _tec_fetch(params: dict) -> list:
 
 @api.get("/events/upcoming")
 async def events_upcoming():
-    today = now_utc().strftime("%Y-%m-%d")
-    events = await _tec_fetch({"per_page": 50, "start_date": today, "status": "publish"})
-    # attach app-side banner overrides
+    events = await _tec_fetch({
+        "per_page": 50,
+        "status": "publish"
+    })
+
     for ev in events:
-        b = await db.event_banners.find_one({"event_id": ev["event_id"]}, {"_id": 0, "banner_url": 1})
-        if b:
-            ev["banner_url"] = b["banner_url"]
+        if db:
+            b = await db.event_banners.find_one(
+                {"event_id": ev["event_id"]},
+                {"_id": 0, "banner_url": 1}
+            )
+            if b:
+                ev["banner_url"] = b["banner_url"]
+
     return {"events": events}
 
 @api.get("/events/past")

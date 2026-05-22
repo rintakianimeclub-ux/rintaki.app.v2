@@ -1,11 +1,9 @@
 import axios from "axios";
 
-export const API = axios.create({
-  baseURL: "https://rintaki.org/wp-json/wp/v2"
-});
+export const API = "https://rintakiapp.org/api";
 
 export const api = axios.create({
-  baseURL: "https://rintaki.org/wp-json/wp/v2",
+  baseURL: API,
   withCredentials: true,
 });
 

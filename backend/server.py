@@ -35,7 +35,11 @@ fs_spotlight = None
 fs_claims = None
 
 if MONGO_URL:
-    client = AsyncIOMotorClient(MONGO_URL)
+    client = AsyncIOMotorClient(
+    MONGO_URL,
+    tls=True,
+    tlsAllowInvalidCertificates=True,
+)
     db = client[DB_NAME]
 
     # GridFS buckets for durable upload storage

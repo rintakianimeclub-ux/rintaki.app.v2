@@ -27,8 +27,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("rintaki")
 
 MONGO_URL = os.environ.get("MONGO_URL", "")
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = None
+
+if MONGO_URL:
+    client = AsyncIOMotorClient(MONGO_URL)
+    db = client["rintaki"]
 # GridFS buckets for durable upload storage (survives container restarts, unlike local disk).
 fs_spotlight = AsyncIOMotorGridFSBucket(db, bucket_name="spotlight")
 fs_claims    = AsyncIOMotorGridFSBucket(db, bucket_name="claims")

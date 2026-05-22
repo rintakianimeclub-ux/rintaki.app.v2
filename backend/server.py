@@ -31,14 +31,16 @@ DB_NAME = os.environ.get("DB_NAME", "rintaki")
 MONGO_URL = os.environ.get("MONGO_URL", "")
 
 db = None
+fs_spotlight = None
+fs_claims = None
 
 if MONGO_URL:
     client = AsyncIOMotorClient(MONGO_URL)
     db = client[DB_NAME]
-    
-# GridFS buckets for durable upload storage (survives container restarts, unlike local disk).
-fs_spotlight = AsyncIOMotorGridFSBucket(db, bucket_name="spotlight")
-fs_claims    = AsyncIOMotorGridFSBucket(db, bucket_name="claims")
+
+    # GridFS buckets for durable upload storage
+    fs_spotlight = AsyncIOMotorGridFSBucket(db, bucket_name="spotlight")
+    fs_claims = AsyncIOMotorGridFSBucket(db, bucket_name="claims")
 
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGO = "HS256"

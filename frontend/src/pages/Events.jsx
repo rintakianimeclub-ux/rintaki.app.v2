@@ -32,18 +32,19 @@ export default function Events() {
   const [form, setForm] = useState({ kind: "photo", url: "", caption: "", event_id: "", event_title: "" });
   const [lightbox, setLightbox] = useState(null);
 
-  const load = useCallback(async () => {
-    const [u, p, ph, vid] = await Promise.all([
-      api.get("/events/upcoming").catch(() => ({ data: { events: [] } })),
-      api.get("/events/past").catch(() => ({ data: { events: [] } })),
-      api.get("/events/media?kind=photo").catch(() => ({ data: { media: [] } })),
-      api.get("/events/media?kind=video").catch(() => ({ data: { media: [] } })),
-    ]);
-    setUpcoming(u.data.events || []);
-    setPast(p.data.events || []);
-    setPhotos(ph.data.media || []);
-    setVideos(vid.data.media || []);
-  }, []);
+const load = useCallback(async () => {
+  const [u, p, ph, vid] = await Promise.all([
+    api.get("/events/upcoming").catch(() => ({ data: { events: [] } })),
+    api.get("/events/past").catch(() => ({ data: { events: [] } })),
+    api.get("/events/media?kind=photo").catch(() => ({ data: { media: [] } })),
+    api.get("/events/media?kind=video").catch(() => ({ data: { media: [] } })),
+  ]);
+
+  setUpcoming(u.data.events || []);
+  setPast(p.data.events || []);
+  setPhotos(ph.data.media || []);
+  setVideos(vid.data.media || []);
+}, []);
   useEffect(() => { load(); }, [load]);
 
   const submit = async (e) => {

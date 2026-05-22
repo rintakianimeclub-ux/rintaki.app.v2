@@ -4,9 +4,8 @@ export const API = axios.create({
   baseURL: "https://rintaki.org/wp-json/wp/v2"
 });
 
-
 export const api = axios.create({
-  baseURL: API,
+  baseURL: "https://rintaki.org/wp-json/wp/v2",
   withCredentials: true,
 });
 

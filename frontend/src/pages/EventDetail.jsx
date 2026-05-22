@@ -22,13 +22,15 @@ export default function EventDetail() {
   const [bannerUrl, setBannerUrl] = useState("");
   const [gallery, setGallery] = useState([]);
 
-  const load = async () => {
-    const { data } = await api.get(`/events/detail/${id}`);
-    setEv(data);
-    setBannerUrl(data.banner_url || "");
-    const g = await api.get(`/events/media?event_id=${id}`);
-    setGallery(g.data.media || []);
-  };
+const load = async () => {
+  const { data } = await api.get(`/events/detail/${id}`);
+  setEv(data);
+
+  setBannerUrl(data.banner_url || "");
+
+  const g = await api.get(`/events/media?event_id=${id}`);
+  setGallery(g.data.media || []);
+};
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const saveBanner = async (e) => {

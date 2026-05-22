@@ -31,7 +31,8 @@ db = None
 
 if MONGO_URL:
     client = AsyncIOMotorClient(MONGO_URL)
-    db = client["rintaki"]
+    db = client[DB_NAME]db = None
+    
 # GridFS buckets for durable upload storage (survives container restarts, unlike local disk).
 fs_spotlight = AsyncIOMotorGridFSBucket(db, bucket_name="spotlight")
 fs_claims    = AsyncIOMotorGridFSBucket(db, bucket_name="claims")

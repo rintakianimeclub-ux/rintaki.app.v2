@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, EmailStr
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("rintaki")
 
-mongo_url = os.environ['MONGO_URL']
+MONGO_URL = os.environ.get("MONGO_URL", "")
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 # GridFS buckets for durable upload storage (survives container restarts, unlike local disk).

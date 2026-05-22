@@ -3780,7 +3780,7 @@ app.include_router(api)
 # Only the WP plugin zip (mostly static, rarely updated) stays on disk.
 
 # Serve the WP plugin zip so the admin can download + install it on rintaki.org
-PLUGIN_DIR = Path("/app/backend/uploads/plugin")
+PLUGIN_DIR = Path("/tmp/backend/uploads/plugin")
 PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/api/uploads/plugin", StaticFiles(directory=str(PLUGIN_DIR)), name="plugin-zip")
 

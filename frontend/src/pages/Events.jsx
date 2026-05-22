@@ -34,10 +34,10 @@ export default function Events() {
 
   const load = useCallback(async () => {
     const [u, p, ph, vid] = await Promise.all([
-      api.get("/events/upcoming").catch(() => ({ data: { events: [] } })),
-      api.get("/events/past").catch(() => ({ data: { events: [] } })),
-      api.get("/events/media?kind=photo").catch(() => ({ data: { media: [] } })),
-      api.get("/events/media?kind=video").catch(() => ({ data: { media: [] } })),
+      api.get("/tribe/events/v1/events/upcoming").catch(() => ({ data: { events: [] } })),
+      api.get("/tribe/events/v1/events/past").catch(() => ({ data: { events: [] } })),
+      api.get("/tribe/events/v1/events/media?kind=photo").catch(() => ({ data: { media: [] } })),
+      api.get("/tribe/events/v1/events/media?kind=video").catch(() => ({ data: { media: [] } })),
     ]);
     setUpcoming(u.data.events || []);
     setPast(p.data.events || []);

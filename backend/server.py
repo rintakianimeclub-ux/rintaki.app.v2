@@ -1036,21 +1036,19 @@ async def _tec_fetch(params: dict) -> list:
 
 @api.get("/events/upcoming")
 async def events_upcoming():
-    events = await _tec_fetch({
-        "per_page": 50,
-        "status": "publish"
-    })
-
-    for ev in events:
-        if db:
-            b = await db.event_banners.find_one(
-                {"event_id": ev["event_id"]},
-                {"_id": 0, "banner_url": 1}
+    try:
+        async with httpx.AsyncClient(timeout=20) as hc:
+            r = await hc.get(
+                "https://rintaki.org/wp-json/tribe/events/v1/events"
             )
-            if b:
-                ev["banner_url"] = b["banner_url"]
 
-    return {"events": events}
+            data = r.json()
+            events = data.get("events", [])
+
+            return {"events": events}
+
+    except Exception as e:
+        return {"events": [], "error": str(e)}
 
 @api.get("/events/past")
 async def events_past():
@@ -1066,19 +1064,32 @@ async def events_past():
 @api.get("/events/detail/{event_id}")
 async def event_detail(event_id: str):
     try:
-        async with httpx.AsyncClient(timeout=10) as hc:
-            r = await hc.get(f"{TEC_BASE}/events/{event_id}")
+        async with httpx.AsyncClient(timeout=20) as hc:
+            r = await hc.get(
+                f"https://rintaki.org/wp-json/tribe/events/v1/events/{event_id}"
+            )
+
             if r.status_code != 200:
                 raise HTTPException(404, "Event not found")
-            ev = _tec_to_simple(r.json())
+
+            ev = r.json()
+
+            if db:
+                b = await db.event_banners.find_one(
+                    {"event_id": event_id},
+                    {"_id": 0, "banner_url": 1}
+                )
+
+                if b:
+                    ev["banner_url"] = b["banner_url"]
+
+            return ev
+
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(502, "Event provider error")
-    b = await db.event_banners.find_one({"event_id": event_id}, {"_id": 0, "banner_url": 1})
-    if b:
-        ev["banner_url"] = b["banner_url"]
-    return ev
+
+    except Exception as e:
+        raise HTTPException(502, str(e))
 
 class EventBannerIn(BaseModel):
     banner_url: str
